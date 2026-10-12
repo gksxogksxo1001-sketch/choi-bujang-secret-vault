@@ -88,5 +88,25 @@ npm run xdr:run -- brute-force
 ```
 - 실행 후 `xdr/brute-force/result.json`에서 판정 건수(`counts`)와 판정 목록(`decisions`)을 확인합니다.
 
+## 보너스 xdr-02 (웹 주입 공격 탐지 및 대응) 현재 작동 기능 및 다시 실행 방법
+
+### 현재 작동하는 기능
+1. **웹 주입 공격 패턴 정의 (`xdr/web-injection/patterns.json`)**:
+   - MITRE ATT&CK T1190 기반 패턴 정의(SQL 구문 반복 주입, 스크립트 태그 삽입 반복, 상위 디렉터리 경로 순회 반복).
+2. **경보 자동 판정 모듈 (`xdr/web-injection/decide.mjs`)**:
+   - Wazuh 형태의 웹 경보를 심판 격리 환경 규칙(import 및 파일 I/O 배제)에 맞춰 순수 자체 계산으로 block·alert·record 판정.
+   - 확신도 0.95(block, 8건), 0.65(alert, 9건), 0.1(record, 9건) 산출.
+3. **대응 및 차단 연계 모듈 (`xdr/web-injection/respond.mjs`)**:
+   - 판정 결과 중 차단 대상(`block`) 8건만 ZTNA 거부 규칙으로 변환(만료 시각 및 근거 경보 번호 부착), 알림은 `xdr/alerts.log`에 안전하게 누적.
+4. **XDR 실행 및 결과 생성 (`xdr/web-injection/result.json`)**:
+   - `web-injection.json` 픽스처(경보 26건) 대상 판정 수행 및 결과 파일 생성 (block: 8건, alert: 9건, record: 9건).
+
+### 다시 실행하는 방법
+```bash
+npm run xdr:run -- web-injection
+```
+- 실행 후 `xdr/web-injection/result.json`에서 판정 건수(`counts`)와 판정 목록(`decisions`)을 확인합니다.
+
+
 
 
