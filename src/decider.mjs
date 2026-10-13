@@ -29,43 +29,70 @@ function inspectRecentEvents(request) {
   return request.recentEvents;
 }
 
-// 알 수 없는 경로 및 :id와 같은 깊이의 기능 경로(export 등) 검사
-function isUnknownOrFunctionPath(path) {
-  if (!path || typeof path !== 'string') return true;
+// 구역 및 경로 엄격 검증 (화이트리스트 방식)
+// 1. 강사 공지 / 반 공지 구역: 읽기(GET)만 허용하고, 쓰기(POST·PUT·PATCH·DELETE)는 누구에게나 전면 거부
+// 2. 메모 구역: 단건 메모(/notes/:id)의 읽기·수정만 허용하고, 전체 목록(/notes) 및 기능 경로(export 등)는 전면 거부
+// 3. 그 외 허용되지 않은 다른 모든 구역 및 경로는 전면 거부 (s08_OTHER_ZONE_ALLOWED 차단)
+function evaluateZone(request) {
+  const method = (request.method || 'GET').toUpperCase();
+  const rawPath = typeof request.path === 'string' ? request.path : '';
+  const rawRoute = typeof request.route === 'string' ? request.route : '';
+  const service = typeof request.service === 'string' ? request.service.toLowerCase() : '';
+
+  const path = rawPath.toLowerCase();
+  const route = rawRoute.toLowerCase();
   const segments = path.split('/').filter(Boolean);
-  if (!segments.length) return true;
 
-  const root = segments[0].toLowerCase();
-  if (root !== 'notes' && root !== 'announcements' && root !== 'notices') {
-    return true; // 허용되지 않은 자원 구역
+  // 1. 강사 공지 / 반 공지 구역 판정
+  const isAnnouncementOrInstructor =
+    segments.some((s) => ['announcements', 'notices', 'announcement', 'instructor', 'materials', 'notice'].includes(s))
+    || ['announcements', 'notices', 'announcement', 'instructor', 'materials', 'notice'].includes(service)
+    || route.includes('/announcements') || route.includes('/notices') || route.includes('/instructor');
+
+  if (isAnnouncementOrInstructor) {
+    // 공지 쓰기(POST, PUT, PATCH, DELETE)는 계약에 역할이 없으므로 누구에게나 거부
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+      return { allowed: false, reasonCode: 'announcement_readonly' };
+    }
+    // 공지 읽기(GET)만 허용
+    if (method === 'GET') {
+      return { allowed: true };
+    }
+    return { allowed: false, reasonCode: 'zone_access_denied' };
   }
 
-  // :id 자리에 export, import 등 기능 경로 배제
-  const functionKeywords = ['export', 'import', 'download', 'upload', 'action', 'search', 'admin', 'restore'];
-  if (segments.length >= 2 && functionKeywords.includes(segments[1].toLowerCase())) {
-    return true;
+  // 2. 메모 구역 판정
+  const isNotes =
+    segments.includes('notes')
+    || service === 'notes'
+    || route.includes('/notes');
+
+  if (isNotes) {
+    // 메모 전체 목록(/notes, route: 'GET /notes', all, list, bulk 등)은 여러 사람의 자료를 여는 경로이므로 거부
+    const isRootList = segments.length <= 1 || (segments.length === 1 && segments[0] === 'notes');
+    const isListRoute = route === 'get /notes' || route === '/notes';
+    const isBulkKeyword = segments.length >= 2 && ['all', 'list', 'bulk', 'batch'].includes(segments[1]);
+
+    if (isRootList || isListRoute || isBulkKeyword) {
+      return { allowed: false, reasonCode: 'zone_access_denied' };
+    }
+
+    // :id 자리에 기능 경로(export, import 등) 배제
+    const functionKeywords = ['export', 'import', 'download', 'upload', 'action', 'search', 'admin', 'restore'];
+    if (segments.length >= 2 && functionKeywords.includes(segments[1])) {
+      return { allowed: false, reasonCode: 'unknown_route' };
+    }
+
+    // 단건 메모(/notes/:id) 읽기·수정·삭제만 허용
+    if (segments.length === 2 && ['GET', 'PUT', 'DELETE', 'POST', 'PATCH'].includes(method)) {
+      return { allowed: true };
+    }
+
+    return { allowed: false, reasonCode: 'unknown_route' };
   }
 
-  return false;
-}
-
-// 여러 사람의 자료를 한꺼번에 여는 메모 전체 목록 경로(/notes) 거부 (단건 /notes/:id만 허용)
-function isBulkNoteListPath(path, route) {
-  if (route === 'GET /notes') return true;
-  const segments = (path || '').split('/').filter(Boolean);
-  if (segments.length === 1 && segments[0].toLowerCase() === 'notes') {
-    return true;
-  }
-  return false;
-}
-
-// 요청 계약에는 역할이 없으므로 반 공지·강사 자료에 대한 쓰기(POST, PUT, PATCH, DELETE)는 누구에게나 거부
-function isAnnouncementModification(method, path) {
-  if (!path) return false;
-  const p = path.toLowerCase();
-  const isAnnouncement = p.startsWith('/announcements') || p.startsWith('/notices');
-  const isModify = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method?.toUpperCase());
-  return isAnnouncement && isModify;
+  // 3. 허용되지 않은 다른 모든 구역 및 경로 전면 거부 (s08_OTHER_ZONE_ALLOWED 차단)
+  return { allowed: false, reasonCode: 'zone_access_denied' };
 }
 
 export async function decide(request) {
@@ -80,39 +107,14 @@ export async function decide(request) {
     };
   }
 
-  const path = request.path || '';
-  const method = request.method || 'GET';
-  const route = request.route || '';
-
-  // 2. 구역 규칙: 알 수 없는 경로 및 :id 깊이의 기능 경로(export 등) 거부
-  if (isUnknownOrFunctionPath(path)) {
+  // 2. 구역 규칙: 화이트리스트 기반 구역 및 동작 검증
+  const zoneResult = evaluateZone(request);
+  if (!zoneResult.allowed) {
     return {
       schema: 'aleph.decision.v1',
       requestId: request.requestId,
       decision: 'deny',
-      reasonCode: 'unknown_route',
-      ruleIds: ['zone_segregation'],
-    };
-  }
-
-  // 3. 구역 규칙: 메모 전체 목록처럼 여러 사람의 자료를 한꺼번에 여는 경로 거부
-  if (isBulkNoteListPath(path, route)) {
-    return {
-      schema: 'aleph.decision.v1',
-      requestId: request.requestId,
-      decision: 'deny',
-      reasonCode: 'zone_access_denied',
-      ruleIds: ['zone_segregation'],
-    };
-  }
-
-  // 4. 구역 규칙: 반 공지·강사 자료에 대한 쓰기는 누구에게나 거부
-  if (isAnnouncementModification(method, path)) {
-    return {
-      schema: 'aleph.decision.v1',
-      requestId: request.requestId,
-      decision: 'deny',
-      reasonCode: 'announcement_readonly',
+      reasonCode: zoneResult.reasonCode,
       ruleIds: ['zone_segregation'],
     };
   }
