@@ -83,6 +83,12 @@ export default async function handler(request, response) {
 
   // 요청마다 서버가 구별할 수 있는 자원 ID 식별 (기본: 'notes', 공지: 'announcements')
   const resourceParam = url.searchParams.get('resourceId') || url.searchParams.get('resource') || url.searchParams.get('type');
+
+  // 등록되지 않은 다른 구역 자원 ID 요청은 403 거부
+  if (resourceParam && !['notes', 'announcements', 'announcement', 'notices'].includes(resourceParam)) {
+    return response.status(403).json({ error: 'Forbidden: invalid or foreign resource zone' });
+  }
+
   const isAnnouncement = resourceParam === 'announcements' || resourceParam === 'announcement' || resourceParam === 'notices'
     || url.pathname.includes('announcement') || url.pathname.includes('notice');
   const resourceId = isAnnouncement ? 'announcements' : 'notes';
