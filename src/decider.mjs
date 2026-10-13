@@ -48,7 +48,7 @@ function evaluateZone(request) {
   if (isAnnouncement) {
     // 반 공지나 강사 자료에 대한 쓰기(POST·PUT·PATCH·DELETE)는 누구에게나 전면 거부
     if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-      return { allowed: false, reasonCode: 'announcement_readonly' };
+      return { allowed: false, reasonCode: 'zone_access_denied' };
     }
     // 공지 읽기(GET)만 허용
     if (method === 'GET') {
