@@ -49,49 +49,23 @@ function isUnknownOrFunctionPath(path) {
   return false;
 }
 
-// 일반 학생의 강사 공지 수정(POST, PUT, DELETE) 검사
-function isAnnouncementModification(subjectId, method, path) {
-  if (!path) return false;
-  const p = path.toLowerCase();
-  const isAnnouncement = p.startsWith('/announcements') || p.startsWith('/notices');
-  const isModify = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method?.toUpperCase());
-
-  if (isAnnouncement && isModify) {
-    const sub = (subjectId || '').toLowerCase();
-    const isInstructor = sub.includes('instructor') || sub.includes('teacher') || sub.includes('admin');
-    return !isInstructor;
+// 여러 사람의 자료를 한꺼번에 여는 메모 전체 목록 경로(/notes) 거부 (단건 /notes/:id만 허용)
+function isBulkNoteListPath(path, route) {
+  if (route === 'GET /notes') return true;
+  const segments = (path || '').split('/').filter(Boolean);
+  if (segments.length === 1 && segments[0].toLowerCase() === 'notes') {
+    return true;
   }
   return false;
 }
 
-// B의 A 메모 등 타인 소유 자원 접근 검사
-function isOtherUserNote(subjectId, path) {
+// 요청 계약에는 역할이 없으므로 반 공지·강사 자료에 대한 쓰기(POST, PUT, PATCH, DELETE)는 누구에게나 거부
+function isAnnouncementModification(method, path) {
   if (!path) return false;
   const p = path.toLowerCase();
-  const sub = (subjectId || '').toLowerCase();
-
-  // /notes/:owner/:id 형태
-  const segments = path.split('/').filter(Boolean);
-  if (segments.length >= 3 && segments[0] === 'notes') {
-    const ownerPart = segments[1].toLowerCase();
-    if (ownerPart !== sub && !sub.includes(ownerPart)) {
-      return true;
-    }
-  }
-
-  // B 사용자가 A 메모(user_a, a_note 등)에 접근하는 경우
-  if (sub.includes('b') || sub.startsWith('user_b') || sub.startsWith('student_b')) {
-    if (p.includes('user_a') || p.includes('student_a') || p.includes('/a') || p.includes('a_note') || p.includes('note_a')) {
-      return true;
-    }
-  }
-
-  // 타인 식별자(other, foreign_user, someone_else 등) 포함 검사
-  if (p.includes('other') || p.includes('foreign_user') || p.includes('unauthorized')) {
-    return true;
-  }
-
-  return false;
+  const isAnnouncement = p.startsWith('/announcements') || p.startsWith('/notices');
+  const isModify = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method?.toUpperCase());
+  return isAnnouncement && isModify;
 }
 
 export async function decide(request) {
@@ -108,7 +82,7 @@ export async function decide(request) {
 
   const path = request.path || '';
   const method = request.method || 'GET';
-  const subjectId = request.subjectId || '';
+  const route = request.route || '';
 
   // 2. 구역 규칙: 알 수 없는 경로 및 :id 깊이의 기능 경로(export 등) 거부
   if (isUnknownOrFunctionPath(path)) {
@@ -121,24 +95,24 @@ export async function decide(request) {
     };
   }
 
-  // 3. 구역 규칙: 일반 학생의 강사 공지 수정 거부
-  if (isAnnouncementModification(subjectId, method, path)) {
-    return {
-      schema: 'aleph.decision.v1',
-      requestId: request.requestId,
-      decision: 'deny',
-      reasonCode: 'announcement_readonly',
-      ruleIds: ['zone_segregation'],
-    };
-  }
-
-  // 4. 구역 규칙: B의 A 메모 등 타인 소유 자원 접근 거부
-  if (isOtherUserNote(subjectId, path)) {
+  // 3. 구역 규칙: 메모 전체 목록처럼 여러 사람의 자료를 한꺼번에 여는 경로 거부
+  if (isBulkNoteListPath(path, route)) {
     return {
       schema: 'aleph.decision.v1',
       requestId: request.requestId,
       decision: 'deny',
       reasonCode: 'zone_access_denied',
+      ruleIds: ['zone_segregation'],
+    };
+  }
+
+  // 4. 구역 규칙: 반 공지·강사 자료에 대한 쓰기는 누구에게나 거부
+  if (isAnnouncementModification(method, path)) {
+    return {
+      schema: 'aleph.decision.v1',
+      requestId: request.requestId,
+      decision: 'deny',
+      reasonCode: 'announcement_readonly',
       ruleIds: ['zone_segregation'],
     };
   }
