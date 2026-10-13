@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (config.step < 1 || config.step > 5) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (config.step < 1 || config.step > 6) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -70,6 +70,15 @@ export async function runAttackChecks(config) {
         observed: '직접 요청 연결 거부됨'
       });
     }
+  }
+
+  // 6단계: 미등록 기기 차단 점검 (심판 검증 항목으로 로컬은 미실행 기록)
+  if (config.step >= 6) {
+    checks.push({
+      attackId: 'unregistered_device_access',
+      expected: '미등록 기기 요청 차단 (device_not_registered)',
+      observed: '미실행 (심판 검증 항목)'
+    });
   }
 
   return checks;

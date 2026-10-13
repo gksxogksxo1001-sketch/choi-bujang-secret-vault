@@ -69,6 +69,26 @@
    - Vercel 배포 웹 화면에서 로그인 후 A의 메모 읽기, 추가, 수정, 삭제가 정상 수행되는지 확인합니다.
    - 원본 주소(`https://kanrdiuonebmjgfkzubq.supabase.co/rest/v1/notes`)로 직접 요청 시 차단되는지 확인합니다.
 
+## 6단계 기기 등록 판정기 기능 및 확인 순서
+
+### 판정기 구현 내용 (`src/decider.mjs`)
+- **규칙 ID (`RULE_IDS`)**: `device_registered`
+- **판정 로직**:
+  - `request.deviceRegistered === true`: `decision: 'allow'`, `reasonCode: 'approved'`, `ruleIds: ['device_registered']`
+  - 미등록(`false`) 또는 값 부재: `decision: 'deny'`, `reasonCode: 'device_not_registered'`, `ruleIds: ['device_registered']`
+
+### 확인 순서
+1. 이번 과정에는 따로 설치할 접속 프로그램이 없으므로, 터미널에서 로컬 가상 요청 시험을 실행합니다:
+   ```bash
+   npm run decider:test
+   ```
+2. 시험 출력에서 아래 두 항목이 모두 정상적으로 통과하는지 확인합니다:
+   - `통과 · 등록 기기의 정상 요청`: 등록 상태(`deviceRegistered: true`)일 때 `decision: 'allow'`, `reasonCode: 'approved'`로 판정
+   - `통과 · 미등록 기기의 가상 요청`: 미등록 상태(`deviceRegistered: false`)일 때 `decision: 'deny'`, `reasonCode: 'device_not_registered'`로 거부
+3. 미등록 기기 차단 및 공격 검증은 실제 환경에서 심판이 맡아 수행합니다.
+
+*(참고: `npm run decider:test`는 가상 요청 연습이며 실제 심판 판정 통과 증거가 아닙니다.)*
+
 ## 보너스 xdr-01 (무차별 대입 탐지 및 대응) 현재 작동 기능 및 다시 실행 방법
 
 ### 현재 작동하는 기능
@@ -106,7 +126,3 @@ npm run xdr:run -- brute-force
 npm run xdr:run -- web-injection
 ```
 - 실행 후 `xdr/web-injection/result.json`에서 판정 건수(`counts`)와 판정 목록(`decisions`)을 확인합니다.
-
-
-
-
