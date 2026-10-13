@@ -61,38 +61,52 @@ function evaluateZone(request) {
     return { allowed: false, reasonCode: 'zone_access_denied' };
   }
 
-  // 2. 메모 구역 판정
-  const isNotes =
-    segments.includes('notes')
-    || service === 'notes'
-    || route.includes('/notes');
+// 2. 메모 구역 판정
+  // 서비스가 지정되어 있다면 오직 'notes' 서비스만 허용
+  if (service && service !== 'notes') {
+    return { allowed: false, reasonCode: 'zone_access_denied' };
+  }
 
-  if (isNotes) {
-    // 메모 전체 목록(/notes, route: 'GET /notes', all, list, bulk 등)은 여러 사람의 자료를 여는 경로이므로 거부
-    const isRootList = segments.length <= 1 || (segments.length === 1 && segments[0] === 'notes');
-    const isListRoute = route === 'get /notes' || route === '/notes';
-    const isBulkKeyword = segments.length >= 2 && ['all', 'list', 'bulk', 'batch'].includes(segments[1]);
+  const notesIndex = segments.indexOf('notes');
+  const routeHasNotes = route.includes('/notes');
 
-    if (isRootList || isListRoute || isBulkKeyword) {
+  // 경로 또는 라우트에 notes가 전혀 없으면 다른 구역
+  if (notesIndex === -1 && !routeHasNotes) {
+    return { allowed: false, reasonCode: 'zone_access_denied' };
+  }
+
+  // 메모 전체 목록 경로 차단:
+  // (a) route가 제공된 경우 ':id'가 없으면(예: GET /notes, GET /api/notes) 전체 목록으로 판정하여 거부
+  if (route && !route.includes(':id')) {
+    return { allowed: false, reasonCode: 'zone_access_denied' };
+  }
+
+  // (b) path가 제공된 경우 'notes' 바로 뒤에 단건 id가 없으면 전체 목록으로 판정하여 거부
+  if (notesIndex !== -1) {
+    const idSegment = segments[notesIndex + 1];
+    // /notes 또는 /api/notes 처럼 뒤에 식별자가 없는 경우
+    if (!idSegment) {
       return { allowed: false, reasonCode: 'zone_access_denied' };
     }
 
-    // :id 자리에 기능 경로(export, import 등) 배제
-    const functionKeywords = ['export', 'import', 'download', 'upload', 'action', 'search', 'admin', 'restore'];
-    if (segments.length >= 2 && functionKeywords.includes(segments[1])) {
+    // 기능 키워드 배제
+    const functionKeywords = ['export', 'import', 'download', 'upload', 'action', 'search', 'admin', 'restore', 'all', 'list', 'bulk', 'batch'];
+    if (functionKeywords.includes(idSegment)) {
       return { allowed: false, reasonCode: 'unknown_route' };
     }
 
-    // 단건 메모(/notes/:id) 읽기·수정·삭제만 허용
-    if (segments.length === 2 && ['GET', 'PUT', 'DELETE', 'POST', 'PATCH'].includes(method)) {
-      return { allowed: true };
+    // /notes/:id 뒤에 불필요한 하위 경로가 있는 경우 배제
+    if (segments.length > notesIndex + 2) {
+      return { allowed: false, reasonCode: 'unknown_route' };
     }
-
-    return { allowed: false, reasonCode: 'unknown_route' };
   }
 
-  // 3. 허용되지 않은 다른 모든 구역 및 경로 전면 거부 (s08_OTHER_ZONE_ALLOWED 차단)
-  return { allowed: false, reasonCode: 'zone_access_denied' };
+  // 단건 메모 읽기·수정·삭제 메서드만 허용
+  if (['GET', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+    return { allowed: true };
+  }
+
+  return { allowed: false, reasonCode: 'unknown_route' };
 }
 
 export async function decide(request) {
@@ -154,6 +168,6 @@ export async function decide(request) {
     requestId: request.requestId,
     decision: 'allow',
     reasonCode: 'approved',
-    ruleIds: isSuspicious ? ['step_up_required'] : ['zone_segregation'],
+    ruleIds: isSuspicious ? ['step_up_required'] : ['device_registered', 'zone_segregation'],
   };
 }
