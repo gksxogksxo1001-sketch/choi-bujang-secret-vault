@@ -116,7 +116,23 @@
       }
 
       try {
-        const response = await fetch('/api/notes', {
+        // 1. 강사 공지 조회 (자원 ID: announcements)
+        let announcements = [];
+        try {
+          const annRes = await fetch('/api/notes?resourceId=announcements', {
+            cache: 'no-store',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (annRes.ok) {
+            const annData = await annRes.json();
+            announcements = Array.isArray(annData) ? annData : [];
+          }
+        } catch {
+          announcements = [];
+        }
+
+        // 2. 내 메모 조회 (자원 ID: notes)
+        const response = await fetch('/api/notes?resourceId=notes', {
           cache: 'no-store',
           headers: {
             'Authorization': `Bearer ${token}`
@@ -125,69 +141,100 @@
         if (!response.ok) throw new Error('자료를 읽을 수 없습니다 (인증 필요).');
         const data = await response.json();
         const notes = Array.isArray(data) ? data : (data.notes || []);
-        if (!Array.isArray(notes)) throw new Error('자료 형식이 맞지 않습니다.');
-        if (notes.length === 0) {
+
+        const allItems = [
+          ...announcements.map(a => ({ ...a, resourceId: 'announcements', isAnnouncement: true })),
+          ...notes.map(n => ({ ...n, resourceId: 'notes', isAnnouncement: false }))
+        ];
+
+        if (allItems.length === 0) {
           const item = document.createElement('li');
-          item.textContent = '등록된 가상 메모가 없습니다.';
+          item.textContent = '등록된 가상 자료가 없습니다.';
           list.replaceChildren(item);
           return;
         }
-        list.replaceChildren(...notes.map(note => {
+
+        list.replaceChildren(...allItems.map(note => {
           const item = document.createElement('li');
+
+          const badge = document.createElement('span');
+          badge.style.display = 'inline-block';
+          badge.style.fontSize = '12px';
+          badge.style.padding = '3px 8px';
+          badge.style.borderRadius = '6px';
+          badge.style.marginBottom = '8px';
+          badge.style.fontWeight = '700';
+
+          if (note.resourceId === 'announcements') {
+            badge.style.background = '#065f46';
+            badge.style.color = '#a7f3d0';
+            badge.textContent = '자원 ID: announcements (강사 공지)';
+          } else {
+            badge.style.background = '#1e3a8a';
+            badge.style.color = '#bfdbfe';
+            badge.textContent = '자원 ID: notes (내 메모)';
+          }
+
           const title = document.createElement('strong');
           const content = document.createElement('span');
           title.textContent = note.title;
           content.textContent = note.body ?? note.content ?? '';
 
-          const actions = document.createElement('div');
-          actions.className = 'note-actions';
+          item.append(badge, title, content);
 
-          const editBtn = document.createElement('button');
-          editBtn.type = 'button';
-          editBtn.className = 'btn btn-edit btn-sm';
-          editBtn.textContent = '수정';
-          editBtn.addEventListener('click', async () => {
-            const newTitle = prompt('수정할 제목:', note.title);
-            if (newTitle === null) return;
-            const newBody = prompt('수정할 내용:', note.body ?? note.content ?? '');
-            if (newBody === null) return;
+          // 내 메모만 수정·삭제 버튼 제공 (공지는 일반 학생 수정 불가)
+          if (!note.isAnnouncement) {
+            const actions = document.createElement('div');
+            actions.className = 'note-actions';
 
-            const res = await fetch(`/api/notes/${note.id}`, {
-              method: 'PUT',
-              headers: {
-                'Authorization': `Bearer ${currentToken}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({ title: newTitle, body: newBody })
-            });
-            if (res.ok) {
-              loadNotes(currentToken);
-            } else {
-              alert('메모 수정에 실패했습니다.');
-            }
-          });
+            const editBtn = document.createElement('button');
+            editBtn.type = 'button';
+            editBtn.className = 'btn btn-edit btn-sm';
+            editBtn.textContent = '수정';
+            editBtn.addEventListener('click', async () => {
+              const newTitle = prompt('수정할 제목:', note.title);
+              if (newTitle === null) return;
+              const newBody = prompt('수정할 내용:', note.body ?? note.content ?? '');
+              if (newBody === null) return;
 
-          const deleteBtn = document.createElement('button');
-          deleteBtn.type = 'button';
-          deleteBtn.className = 'btn btn-danger btn-sm';
-          deleteBtn.textContent = '삭제';
-          deleteBtn.addEventListener('click', async () => {
-            if (!confirm(`'${note.title}' 메모를 삭제하시겠습니까?`)) return;
-            const res = await fetch(`/api/notes/${note.id}`, {
-              method: 'DELETE',
-              headers: {
-                'Authorization': `Bearer ${currentToken}`
+              const res = await fetch(`/api/notes/${note.id}?resourceId=notes`, {
+                method: 'PUT',
+                headers: {
+                  'Authorization': `Bearer ${currentToken}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ title: newTitle, body: newBody, resourceId: 'notes' })
+              });
+              if (res.ok) {
+                loadNotes(currentToken);
+              } else {
+                alert('메모 수정에 실패했습니다.');
               }
             });
-            if (res.ok) {
-              loadNotes(currentToken);
-            } else {
-              alert('메모 삭제에 실패했습니다.');
-            }
-          });
 
-          actions.append(editBtn, deleteBtn);
-          item.append(title, content, actions);
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'btn btn-danger btn-sm';
+            deleteBtn.textContent = '삭제';
+            deleteBtn.addEventListener('click', async () => {
+              if (!confirm(`'${note.title}' 메모를 삭제하시겠습니까?`)) return;
+              const res = await fetch(`/api/notes/${note.id}?resourceId=notes`, {
+                method: 'DELETE',
+                headers: {
+                  'Authorization': `Bearer ${currentToken}`
+                }
+              });
+              if (res.ok) {
+                loadNotes(currentToken);
+              } else {
+                alert('메모 삭제에 실패했습니다.');
+              }
+            });
+
+            actions.append(editBtn, deleteBtn);
+            item.append(actions);
+          }
+
           return item;
         }));
       } catch (error) {
@@ -268,13 +315,13 @@
       const body = newNoteBody.value.trim();
       if (!title || !body) return;
 
-      const res = await fetch('/api/notes', {
+      const res = await fetch('/api/notes?resourceId=notes', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${currentToken}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ title, body })
+        body: JSON.stringify({ title, body, resourceId: 'notes' })
       });
 
       if (res.ok) {
