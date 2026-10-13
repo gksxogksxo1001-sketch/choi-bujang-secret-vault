@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (config.step < 1 || config.step > 6) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (config.step < 1 || config.step > 7) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -78,6 +78,16 @@ export async function runAttackChecks(config) {
       attackId: 'unregistered_device_access',
       expected: '미등록 기기 요청 차단 (device_not_registered)',
       observed: '미실행 (심판 검증 항목)'
+    });
+  }
+
+  // 7단계: 복합 이상 접속 추가 확인(재로그인) 점검
+  // 제공 엔진의 재로그인 시각 확인 계약이 준비 전이므로 가상 사건 규칙만 시험하고 실제 차단은 미실행으로 기록
+  if (config.step >= 7) {
+    checks.push({
+      attackId: 'step_up_reauth_check',
+      expected: '복합 이상 접속 시 추가 확인(재인증) 전 차단 및 새 요청 허용',
+      observed: '미실행 (제공 엔진 계약 준비 전 · 로컬 가상 사건 규칙 시험 완료)'
     });
   }
 

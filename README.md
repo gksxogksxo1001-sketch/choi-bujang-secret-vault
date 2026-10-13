@@ -89,6 +89,28 @@
 
 *(참고: `npm run decider:test`는 가상 요청 연습이며 실제 심판 판정 통과 증거가 아닙니다.)*
 
+## 7단계 복합 이상 접속 추가 확인(step_up) 기능 및 다시 실행 방법
+
+### 현재 작동하는 기능
+1. **가상 접속 신호 및 사건 출처 검증**:
+   - `request.signals`의 출처(`judge_fixture`)를 검증하며, 누락되거나 불명확한 접속 정보를 임의의 기본 정상값으로 보정(승격)하지 않습니다.
+2. **복합 이상 접속 탐지 및 추가 확인 요구 (`step_up_required`)**:
+   - 지역 단독 영구 차단을 지양하고, 평소와 다른 시각, 처음 보는 네트워크, 대량 자료 조회의 복합 이상 징후를 감지합니다.
+   - 추가 본인 확인 미완료 시 `decision: 'step_up'`, `reasonCode: 'step_up_required'`로 재인증을 요구합니다.
+3. **재인증 완료 후 요청 허용**:
+   - `request.stepUp.verified === true` 및 유효 시간(0~900초) 내 요청은 `allow`로 정상 허용합니다.
+4. **기존 기기 등록 규칙 유지**:
+   - 미등록 기기(`deviceRegistered !== true`)는 즉시 `deny` / `device_not_registered`로 차단합니다.
+
+### 다시 실행하는 방법
+```bash
+npm run fixture:7
+npm run decider:test
+```
+- `npm run fixture:7`: 정상 사건은 `allow`, 복합 이상 사건은 `step_up`으로 판정되는지 확인합니다.
+- `npm run decider:test`: 등록 기기 정상 요청, 미등록 기기 차단, 복합 이상 접속(`step_up`), 재확인 후 허용(`allow`) 4개 항목을 검증합니다.
+*(참고: 로컬 가상 사건 연습이며 실제 심판 판정 통과 증거가 아닙니다.)*
+
 ## 보너스 xdr-01 (무차별 대입 탐지 및 대응) 현재 작동 기능 및 다시 실행 방법
 
 ### 현재 작동하는 기능
