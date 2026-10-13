@@ -35,22 +35,18 @@ function inspectRecentEvents(request) {
 // 3. 그 외 허용되지 않은 다른 모든 구역 및 경로는 전면 거부 (s08_OTHER_ZONE_ALLOWED 차단)
 function evaluateZone(request) {
   const method = (request.method || 'GET').toUpperCase();
-  const rawPath = typeof request.path === 'string' ? request.path : '';
-  const rawRoute = typeof request.route === 'string' ? request.route : '';
-  const service = typeof request.service === 'string' ? request.service.toLowerCase() : '';
+  const rawPath = typeof request.path === 'string' ? request.path.trim().toLowerCase() : '';
+  const rawRoute = typeof request.route === 'string' ? request.route.trim().toLowerCase() : '';
+  const service = typeof request.service === 'string' ? request.service.trim().toLowerCase() : '';
 
-  const path = rawPath.toLowerCase();
-  const route = rawRoute.toLowerCase();
-  const segments = path.split('/').filter(Boolean);
+  // 1. 강사 공지 / 반 공지 구역 판정 (announcements, notices, instructor, materials 등)
+  const isAnnouncement =
+    rawPath.includes('announcement') || rawPath.includes('notice') || rawPath.includes('instructor') || rawPath.includes('material')
+    || rawRoute.includes('announcement') || rawRoute.includes('notice') || rawRoute.includes('instructor') || rawRoute.includes('material')
+    || ['announcements', 'notices', 'announcement', 'instructor', 'materials', 'notice'].includes(service);
 
-  // 1. 강사 공지 / 반 공지 구역 판정
-  const isAnnouncementOrInstructor =
-    segments.some((s) => ['announcements', 'notices', 'announcement', 'instructor', 'materials', 'notice'].includes(s))
-    || ['announcements', 'notices', 'announcement', 'instructor', 'materials', 'notice'].includes(service)
-    || route.includes('/announcements') || route.includes('/notices') || route.includes('/instructor');
-
-  if (isAnnouncementOrInstructor) {
-    // 공지 쓰기(POST, PUT, PATCH, DELETE)는 계약에 역할이 없으므로 누구에게나 거부
+  if (isAnnouncement) {
+    // 반 공지나 강사 자료에 대한 쓰기(POST·PUT·PATCH·DELETE)는 누구에게나 전면 거부
     if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
       return { allowed: false, reasonCode: 'announcement_readonly' };
     }
@@ -61,44 +57,50 @@ function evaluateZone(request) {
     return { allowed: false, reasonCode: 'zone_access_denied' };
   }
 
-// 2. 메모 구역 판정
-  // 서비스가 지정되어 있다면 오직 'notes' 서비스만 허용
+  // 2. 메모 구역 판정
+  // 등록되지 않은 다른 서비스 구역은 전면 거부
   if (service && service !== 'notes') {
     return { allowed: false, reasonCode: 'zone_access_denied' };
   }
 
-  const notesIndex = segments.indexOf('notes');
-  const routeHasNotes = route.includes('/notes');
-
-  // 경로 또는 라우트에 notes가 전혀 없으면 다른 구역
-  if (notesIndex === -1 && !routeHasNotes) {
+  // 경로(path 또는 route)에 notes가 반드시 포함되어야 메모 구역으로 판정
+  const hasNotesInPath = rawPath.includes('notes');
+  const hasNotesInRoute = rawRoute.includes('notes');
+  if (!hasNotesInPath && !hasNotesInRoute) {
     return { allowed: false, reasonCode: 'zone_access_denied' };
   }
 
-  // 메모 전체 목록 경로 차단:
-  // (a) route가 제공된 경우 ':id'가 없으면(예: GET /notes, GET /api/notes) 전체 목록으로 판정하여 거부
-  if (route && !route.includes(':id')) {
-    return { allowed: false, reasonCode: 'zone_access_denied' };
+  // route가 제공된 경우 반드시 notes 단건 식별자(:id)를 포함해야 함
+  if (rawRoute) {
+    if (!rawRoute.includes(':id') || !rawRoute.includes('notes')) {
+      return { allowed: false, reasonCode: 'zone_access_denied' };
+    }
   }
 
-  // (b) path가 제공된 경우 'notes' 바로 뒤에 단건 id가 없으면 전체 목록으로 판정하여 거부
-  if (notesIndex !== -1) {
-    const idSegment = segments[notesIndex + 1];
-    // /notes 또는 /api/notes 처럼 뒤에 식별자가 없는 경우
-    if (!idSegment) {
+  const segments = rawPath.split('/').filter(Boolean);
+  const notesIdx = segments.indexOf('notes');
+
+  // path가 제공된 경우 'notes' 바로 뒤에 단건 id가 반드시 존재해야 함
+  if (notesIdx !== -1) {
+    const idPart = segments[notesIdx + 1];
+    // /notes 또는 /api/notes 처럼 뒤에 식별자가 없는 경우 거부
+    if (!idPart) {
       return { allowed: false, reasonCode: 'zone_access_denied' };
     }
 
-    // 기능 키워드 배제
+    // :id 자리에 기능 키워드(export, import 등) 배제
     const functionKeywords = ['export', 'import', 'download', 'upload', 'action', 'search', 'admin', 'restore', 'all', 'list', 'bulk', 'batch'];
-    if (functionKeywords.includes(idSegment)) {
+    if (functionKeywords.includes(idPart)) {
       return { allowed: false, reasonCode: 'unknown_route' };
     }
 
-    // /notes/:id 뒤에 불필요한 하위 경로가 있는 경우 배제
-    if (segments.length > notesIndex + 2) {
+    // /notes/:id 뒤에 하위 경로가 더 있으면 배제
+    if (segments.length > notesIdx + 2) {
       return { allowed: false, reasonCode: 'unknown_route' };
     }
+  } else if (rawPath) {
+    // path가 명시되었으나 notes 세그먼트가 없는 다른 구역 경로는 전면 거부
+    return { allowed: false, reasonCode: 'zone_access_denied' };
   }
 
   // 단건 메모 읽기·수정·삭제 메서드만 허용
@@ -107,6 +109,9 @@ function evaluateZone(request) {
   }
 
   return { allowed: false, reasonCode: 'unknown_route' };
+
+  // 3. 그 밖의 모든 알 수 없는 구역 및 경로 전면 거부 (s08_OTHER_ZONE_ALLOWED 차단)
+  return { allowed: false, reasonCode: 'zone_access_denied' };
 }
 
 export async function decide(request) {
