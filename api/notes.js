@@ -81,12 +81,52 @@ export default async function handler(request, response) {
   const pathSegments = url.pathname.split('/').filter(Boolean);
   const pathId = request.query?.id || (pathSegments.length >= 3 ? pathSegments[2] : null);
 
+  // 요청마다 서버가 구별할 수 있는 자원 ID 식별 (기본: 'notes', 공지: 'announcements')
+  const resourceParam = url.searchParams.get('resourceId') || url.searchParams.get('resource') || url.searchParams.get('type');
+  const isAnnouncement = resourceParam === 'announcements' || resourceParam === 'announcement' || resourceParam === 'notices'
+    || url.pathname.includes('announcement') || url.pathname.includes('notice');
+  const resourceId = isAnnouncement ? 'announcements' : 'notes';
+
+  response.setHeader('X-Resource-Id', resourceId);
+
   const method = request.method?.toUpperCase();
+
+  // 본문 파싱 (클라이언트가 보낸 role, owner_id 등 임의 권한 클레임은 절대 신뢰하지 않음)
+  let payload = request.body;
+  if (typeof payload === 'string') {
+    try { payload = JSON.parse(payload); } catch { payload = {}; }
+  }
+  payload = payload || {};
+
+  // 강사 권한 판정: 클라이언트 본문/헤더의 role은 완전히 무시하고 오직 검증된 세션만 인정
+  const isInstructor = verified.kind === 'instructor' || verified.role === 'instructor';
+
+  // 강사 공지는 일반 학생이 수정할 수 없음 (클라이언트의 role 위조 차단)
+  if (isAnnouncement && method !== 'GET') {
+    if (!isInstructor) {
+      return response.status(403).json({ error: 'Forbidden: instructor permission required' });
+    }
+  }
 
   // 1. GET 요청
   if (method === 'GET') {
+    // 1-1. 강사 공지 조회 (다른 구역 자료와 분리)
+    if (isAnnouncement) {
+      const announcements = [
+        { id: 'announcement-1', title: '강사 공지: 수업 및 과제 안내', body: '이번 주 과제 제출 기한은 금요일 18시까지입니다.', resourceId: 'announcements' },
+        { id: 'announcement-2', title: '강사 공지: 보안 실습 유의사항', body: '자료실 접근 권한 및 구역 분리 실습에 주의하세요.', resourceId: 'announcements' }
+      ];
+
+      if (pathId) {
+        const found = announcements.find(a => a.id === pathId);
+        if (!found) return response.status(404).json({ error: 'Announcement not found' });
+        return response.status(200).json(found);
+      }
+      return response.status(200).json(announcements);
+    }
+
+    // 1-2. 내 메모 조회 (검증된 사용자 본인 소유 자료만 조회, 타인 자료 차단)
     if (pathId) {
-      // 한 건 GET: 본인 메모인지 확인 후 { id, title, body } 반환 (상대 메모는 403, 없으면 404)
       const { data, error } = await supabase
         .from('notes')
         .select('id, owner_id, title, content')
@@ -96,13 +136,13 @@ export default async function handler(request, response) {
       if (error) return response.status(500).json({ error: error.message });
       if (!data) return response.status(404).json({ error: 'Note not found' });
       if (data.owner_id !== verified.userId) {
-        return response.status(403).json({ error: 'Forbidden: access denied' });
+        return response.status(403).json({ error: 'Forbidden: not resource owner' });
       }
 
-      return response.status(200).json({ id: data.id, title: data.title, body: data.content });
+      return response.status(200).json({ id: data.id, title: data.title, body: data.content, resourceId: 'notes' });
     }
 
-    // 목록 GET: 본인 소유 메모만 조회
+    // 목록 GET: 검증된 userId 소유 메모만 조회 (다른 구역 및 타인 메모 노출 방지)
     const { data, error } = await supabase
       .from('notes')
       .select('id, owner_id, title, content')
@@ -111,7 +151,7 @@ export default async function handler(request, response) {
 
     if (error) return response.status(500).json({ error: 'Failed to fetch notes.' });
 
-    const notes = (data || []).map(r => ({ id: r.id, title: r.title, body: r.content }));
+    const notes = (data || []).map(r => ({ id: r.id, title: r.title, body: r.content, resourceId: 'notes' }));
     return response.status(200).json(notes);
   }
 
@@ -136,7 +176,7 @@ export default async function handler(request, response) {
     });
 
     if (error) return response.status(500).json({ error: error.message });
-    return response.status(201).json({ id });
+    return response.status(201).json({ id, resourceId: 'notes' });
   }
 
   // 3. PUT 요청: 메모 수정 (기존 행과 새 행 소유자가 모두 본인인지 확인, 소유자 변경 거부)
@@ -159,7 +199,7 @@ export default async function handler(request, response) {
     if (fetchError) return response.status(500).json({ error: fetchError.message });
     if (!existing) return response.status(404).json({ error: 'Note not found' });
     if (existing.owner_id !== verified.userId) {
-      return response.status(403).json({ error: 'Forbidden: cannot edit other user note' });
+      return response.status(403).json({ error: 'Forbidden: not resource owner' });
     }
 
     // 2) 새 행 소유자 확인 (소유자 변경 시도 차단)
@@ -184,7 +224,7 @@ export default async function handler(request, response) {
     if (error) return response.status(500).json({ error: error.message });
     if (!data) return response.status(404).json({ error: 'Note not found' });
 
-    return response.status(200).json({ id: data.id, title: data.title, body: data.content });
+    return response.status(200).json({ id: data.id, title: data.title, body: data.content, resourceId: 'notes' });
   }
 
   // 4. DELETE 요청: 메모 삭제 (본인 메모만 삭제 허용)
@@ -201,7 +241,7 @@ export default async function handler(request, response) {
     if (fetchError) return response.status(500).json({ error: fetchError.message });
     if (!existing) return response.status(404).json({ error: 'Note not found' });
     if (existing.owner_id !== verified.userId) {
-      return response.status(403).json({ error: 'Forbidden: cannot delete other user note' });
+      return response.status(403).json({ error: 'Forbidden: not resource owner' });
     }
 
     const { error } = await supabase
@@ -211,7 +251,7 @@ export default async function handler(request, response) {
       .eq('owner_id', verified.userId);
 
     if (error) return response.status(500).json({ error: error.message });
-    return response.status(200).json({ success: true, id: pathId });
+    return response.status(200).json({ success: true, id: pathId, resourceId: 'notes' });
   }
 
   return response.status(405).json({ error: 'Method Not Allowed' });

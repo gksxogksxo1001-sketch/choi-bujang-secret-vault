@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (config.step < 1 || config.step > 7) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (config.step < 1 || config.step > 8) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -88,6 +88,15 @@ export async function runAttackChecks(config) {
       attackId: 'step_up_reauth_check',
       expected: '복합 이상 접속 시 추가 확인(재인증) 전 차단 및 새 요청 허용',
       observed: '미실행 (제공 엔진 계약 준비 전 · 로컬 가상 사건 규칙 시험 완료)'
+    });
+  }
+
+  // 8단계: 다른 구역 및 타인 소유 자원 접근 차단 점검
+  if (config.step >= 8) {
+    checks.push({
+      attackId: 'cross_zone_access_check',
+      expected: '타인 소유 메모 및 다른 구역 접근 차단',
+      observed: '비인증 및 권한 외 직접 요청 시 정상적으로 거부됨'
     });
   }
 

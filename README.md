@@ -111,6 +111,25 @@ npm run decider:test
 - `npm run decider:test`: 등록 기기 정상 요청, 미등록 기기 차단, 복합 이상 접속(`step_up`), 재확인 후 허용(`allow`) 4개 항목을 검증합니다.
 *(참고: 로컬 가상 사건 연습이며 실제 심판 판정 통과 증거가 아닙니다.)*
 
+## 8단계 자원 구역 분리 및 권한 대조 기능 및 다시 실행 방법
+
+### 현재 작동하는 기능
+1. **자료실 메모와 강사 공지 자원 ID 분리 (`api/notes.js`)**:
+   - 요청마다 서버가 자원 ID(`notes` vs `announcements`)를 구별하고 응답 헤더(`X-Resource-Id`) 및 본문에 자원 ID를 표시합니다.
+   - 강사 공지는 읽기 전용 구역으로 분리되어 일반 학생의 수정·삭제 요청은 거부됩니다.
+2. **판정기 구역 규칙 (`zone_segregation`, `src/decider.mjs`)**:
+   - 사용자·기기·메서드·정확한 경로를 검증하여 A 자기 메모는 허용하고, B의 A 메모 접근(`zone_access_denied`) 및 일반 학생의 공지 수정(`announcement_readonly`), 알 수 없는 기능 경로(`export` 등, `unknown_route`)를 거부합니다.
+3. **자료 API 소유자 및 권한 재검증**:
+   - 클라이언트 본문이나 메뉴의 `role`을 신뢰하지 않고, JWT 검증 주체(`userId`)와 DB의 `owner_id`를 대조하여 메뉴 우회 직접 요청 시에도 타인 메모 접근을 차단(`403 Forbidden: not resource owner`)합니다.
+
+### 다시 실행하는 방법
+```bash
+npm run test:package
+npm run decider:test
+```
+- `npm run test:package`: 패키징 함수 기준표 및 정합성을 검증합니다.
+- `npm run decider:test`: 구역 분리 규칙을 포함한 판정기 테스트를 통과하는지 확인합니다.
+
 ## 보너스 xdr-01 (무차별 대입 탐지 및 대응) 현재 작동 기능 및 다시 실행 방법
 
 ### 현재 작동하는 기능
