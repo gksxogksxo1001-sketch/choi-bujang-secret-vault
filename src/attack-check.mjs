@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (config.step < 1 || config.step > 8) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (config.step < 1 || config.step > 9) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -97,6 +97,16 @@ export async function runAttackChecks(config) {
       attackId: 'cross_zone_access_check',
       expected: '타인 소유 메모 및 다른 구역 접근 차단',
       observed: '비인증 및 권한 외 직접 요청 시 정상적으로 거부됨'
+    });
+  }
+
+  // 9단계: 도플갱어 탐지 및 권한 회수 제안 점검
+  // 운영 반 엔진의 사건 전달·접속 회수가 연결 전이므로 로컬 탐지 규칙만 시험하고 실제 접속 회수는 미실행으로 기록
+  if (config.step >= 9) {
+    checks.push({
+      attackId: 'burst_read_detection_check',
+      expected: '10분 내 120건 초과 다량 조회 탐지 및 회수 제안(propose_revocation)',
+      observed: '미실행 (운영 반 엔진 전달 연결 전 · 로컬 가상 사건 탐지 시험 통과)'
     });
   }
 

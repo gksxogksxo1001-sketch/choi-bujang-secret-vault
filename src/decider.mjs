@@ -103,7 +103,34 @@ function evaluateZone(request) {
   return { allowed: false, reasonCode: 'unknown_route' };
 }
 
-export async function decide(request) {
+// 제공된 가상 사건에서 가명 사용자·기기·요청 종류·판정 신호만 안전하게 읽습니다.
+// 메모 본문, 토큰, 실명, 비인가 외부 필드는 저장하거나 출력하지 않고 철저히 배제합니다.
+function sanitizeRequest(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return null;
+  }
+  return {
+    schema: raw.schema,
+    requestId: typeof raw.requestId === 'string' ? raw.requestId : '',
+    subjectId: typeof raw.subjectId === 'string' ? raw.subjectId : null,
+    deviceId: typeof raw.deviceId === 'string' ? raw.deviceId : null,
+    service: typeof raw.service === 'string' ? raw.service : '',
+    method: typeof raw.method === 'string' ? raw.method : 'GET',
+    path: typeof raw.path === 'string' ? raw.path : '',
+    route: typeof raw.route === 'string' ? raw.route : '',
+    deviceRegistered: raw.deviceRegistered === true,
+    stepUp: raw.stepUp && typeof raw.stepUp === 'object' ? {
+      verified: raw.stepUp.verified === true,
+      authAgeSeconds: typeof raw.stepUp.authAgeSeconds === 'number' ? raw.stepUp.authAgeSeconds : null,
+    } : null,
+    signals: raw.signals,
+    recentEvents: raw.recentEvents,
+  };
+}
+
+export async function decide(rawRequest) {
+  const request = sanitizeRequest(rawRequest) || rawRequest;
+
   // 1. 기존 기기 규칙: 미등록 기기는 거부
   if (request.deviceRegistered !== true) {
     return {
@@ -130,14 +157,14 @@ export async function decide(request) {
   const signals = inspectSignals(request);
   const recentEvents = inspectRecentEvents(request);
 
-  // 5. 복합 이상 접속(시각·네트워크·대량조회) 감지 및 재인증 요구
-  const isUnusualHour = signals && typeof signals.hour === 'number' && (signals.hour < 6 || signals.hour > 22);
-  const isUnusualNetwork = signals && signals.network === 'unusual';
-  const hasRiskEvents = recentEvents.some(
+  // 복합 의심 탐지: 평소와 다른 네트워크와 갑작스러운 다량 조회가 함께 나타날 때만 의심으로 표시
+  // 지역(region) 하나만으로 확정하지 않고 정상 사건은 그대로 유지
+  const isUnusualNetwork = Boolean(signals && signals.network === 'unusual');
+  const hasBurstRead = recentEvents.some(
     (e) => e && (e.kind === 'risk_signal' || (typeof e.count === 'number' && e.count >= 10))
   );
 
-  const isSuspicious = isUnusualHour && isUnusualNetwork && hasRiskEvents;
+  const isSuspicious = isUnusualNetwork && hasBurstRead;
 
   if (isSuspicious) {
     const stepUpVerified = request.stepUp?.verified === true
