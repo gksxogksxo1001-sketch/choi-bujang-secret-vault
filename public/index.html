@@ -22,6 +22,7 @@
     .device-card-header strong { font-size: 16px; margin-bottom: 0; }
     .device-badge { display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; background: #854d0e; color: #fef08a; }
     .device-badge.verified { background: #065f46; color: #a7f3d0; }
+    .device-badge.unverified { background: #991b1b; color: #fecaca; }
     .device-notice { font-size: 14px; line-height: 1.6; color: #94a3b8; margin: 0; }
     ul { list-style: none; display: grid; gap: 12px; padding: 0; }
     li { border: 1px solid #51667c; border-radius: 14px; padding: 17px 19px; background: #1a2a3d; }
@@ -70,6 +71,10 @@
       <p class="device-notice">
         앱을 설치했다는 표시만으로 기기 확인이 완료된 것으로 간주하지 않습니다. 기기 신뢰 및 접근 승인 여부는 클라이언트가 아닌 서버와 ZTNA 판정기가 최종 결정하며, 기기 키나 토큰은 브라우저 저장소에 보관하지 않습니다.
       </p>
+      <div id="device-action-box" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid #233549; display: none;">
+        <button type="button" class="btn btn-primary" id="request-approval-btn">기기 승인 요청</button>
+        <div id="device-approval-result" style="margin-top: 10px; font-size: 14px; font-weight: 600; display: none;"></div>
+      </div>
     </section>
 
     <section class="auth-card" id="auth-section">
@@ -97,24 +102,31 @@
           <button type="button" class="btn btn-secondary" id="logout-btn">로그아웃</button>
         </div>
 
-        <div class="add-note-card">
-          <h3>새 가상 메모 추가</h3>
-          <form id="add-note-form" class="auth-form">
-            <label>
-              제목
-              <input type="text" id="new-note-title" required placeholder="메모 제목">
-            </label>
-            <label>
-              내용
-              <input type="text" id="new-note-body" required placeholder="메모 내용">
-            </label>
-            <button type="submit" class="btn btn-primary" id="add-note-btn">메모 추가</button>
-          </form>
+        <div id="device-unapproved-vault-notice" style="margin: 20px 0; padding: 20px; border: 1px dashed #d07384; border-radius: 12px; background: #612a3533; color: #ffe3e8; text-align: center;">
+          <strong style="font-size: 16px; color: #fecdd3;">🔒 보호 자료 잠금 (기기 미승인)</strong>
+          <p style="margin: 6px 0 0; font-size: 14px; color: #ffd1d9;">서버가 이 기기를 등록 기기로 확인하기 전에는 보호 자료를 표시하지 않습니다. 상단의 [기기 승인 요청] 버튼을 눌러 등록을 완료해 주세요.</p>
+        </div>
+
+        <div id="approved-vault-area" style="display: none;">
+          <div class="add-note-card">
+            <h3>새 가상 메모 추가</h3>
+            <form id="add-note-form" class="auth-form">
+              <label>
+                제목
+                <input type="text" id="new-note-title" required placeholder="메모 제목">
+              </label>
+              <label>
+                내용
+                <input type="text" id="new-note-body" required placeholder="메모 내용">
+              </label>
+              <button type="submit" class="btn btn-primary" id="add-note-btn">메모 추가</button>
+            </form>
+          </div>
+
+          <ul id="notes" aria-live="polite" style="margin-top: 18px;"><li>가상 자료를 불러오는 중입니다.</li></ul>
         </div>
       </div>
     </section>
-
-    <ul id="notes" aria-live="polite"><li>가상 자료를 불러오는 중입니다.</li></ul>
   </main>
   <script type="module">
     const unauthView = document.querySelector('#unauthenticated-view');
@@ -270,20 +282,175 @@
       }
     }
 
-    function updateAuthState(session) {
+    const deviceActionBox = document.querySelector('#device-action-box');
+    const deviceStatusBadge = document.querySelector('#device-status-badge');
+    const requestApprovalBtn = document.querySelector('#request-approval-btn');
+    const deviceApprovalResult = document.querySelector('#device-approval-result');
+    const unapprovedNotice = document.querySelector('#device-unapproved-vault-notice');
+    const approvedVaultArea = document.querySelector('#approved-vault-area');
+
+    let currentDeviceId = null;
+    async function getOrGenerateDeviceId() {
+      if (currentDeviceId) return currentDeviceId;
+      try {
+        const raw = `${navigator.userAgent}|${navigator.language}|${screen.width}x${screen.height}`;
+        const msgBuffer = new TextEncoder().encode(raw);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+        currentDeviceId = `dev_${hashHex}`;
+      } catch {
+        currentDeviceId = 'dev_client_runtime';
+      }
+      return currentDeviceId;
+    }
+
+    async function checkServerDeviceStatus(token) {
+      if (!token) return { approved: false };
+      try {
+        const devId = await getOrGenerateDeviceId();
+        const res = await fetch(`/api/notes?action=device-status&deviceId=${encodeURIComponent(devId)}`, {
+          cache: 'no-store',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch (e) {
+        console.error('Device status check failed:', e);
+      }
+      return { approved: false };
+    }
+
+    async function updateAuthState(session) {
       if (session && session.user && session.access_token) {
+        currentToken = session.access_token;
         unauthView.style.display = 'none';
         authView.style.display = 'block';
         userDisplay.textContent = `${session.user.email} 계정으로 로그인됨`;
         authError.style.display = 'none';
         authError.textContent = '';
-        loadNotes(session.access_token);
+
+        if (deviceActionBox) deviceActionBox.style.display = 'block';
+
+        // 서버 등록 기기 검증: 승인 확인 전에는 보호 자료를 표시하지 않음
+        const devStatus = await checkServerDeviceStatus(session.access_token);
+        if (devStatus.approved) {
+          if (deviceStatusBadge) {
+            deviceStatusBadge.textContent = '등록 기기 (승인 완료)';
+            deviceStatusBadge.className = 'device-badge verified';
+          }
+          if (deviceApprovalResult) {
+            deviceApprovalResult.style.display = 'block';
+            deviceApprovalResult.style.color = '#34d399';
+            deviceApprovalResult.textContent = '✅ 서버 확인 완료: 이 기기는 승인된 등록 기기입니다. 보호 자료실을 엽니다.';
+          }
+          if (requestApprovalBtn) {
+            requestApprovalBtn.disabled = true;
+            requestApprovalBtn.textContent = '기기 승인 완료됨';
+          }
+          if (unapprovedNotice) unapprovedNotice.style.display = 'none';
+          if (approvedVaultArea) approvedVaultArea.style.display = 'block';
+          loadNotes(session.access_token);
+        } else {
+          if (deviceStatusBadge) {
+            deviceStatusBadge.textContent = '미등록 기기 (승인 대기)';
+            deviceStatusBadge.className = 'device-badge unverified';
+          }
+          if (deviceApprovalResult) {
+            deviceApprovalResult.style.display = 'block';
+            deviceApprovalResult.style.color = '#f87171';
+            deviceApprovalResult.textContent = '⚠️ 미등록 기기: 서버의 등록 확인 전에는 보호 자료를 열람할 수 없습니다.';
+          }
+          if (requestApprovalBtn) {
+            requestApprovalBtn.disabled = false;
+            requestApprovalBtn.textContent = '기기 승인 요청';
+          }
+          if (unapprovedNotice) unapprovedNotice.style.display = 'block';
+          if (approvedVaultArea) approvedVaultArea.style.display = 'none';
+          const list = document.querySelector('#notes');
+          if (list) list.replaceChildren();
+        }
       } else {
+        currentToken = null;
         authView.style.display = 'none';
         unauthView.style.display = 'block';
         userDisplay.textContent = '';
+        if (deviceActionBox) deviceActionBox.style.display = 'none';
+        if (deviceStatusBadge) {
+          deviceStatusBadge.textContent = '판정기 확인 필요';
+          deviceStatusBadge.className = 'device-badge';
+        }
+        if (deviceApprovalResult) {
+          deviceApprovalResult.style.display = 'none';
+          deviceApprovalResult.textContent = '';
+        }
+        if (unapprovedNotice) unapprovedNotice.style.display = 'block';
+        if (approvedVaultArea) approvedVaultArea.style.display = 'none';
         loadNotes(null);
       }
+    }
+
+    if (requestApprovalBtn) {
+      requestApprovalBtn.addEventListener('click', async () => {
+        if (!currentToken) {
+          alert('먼저 로그인해 주세요.');
+          return;
+        }
+        requestApprovalBtn.disabled = true;
+        requestApprovalBtn.textContent = '서버 승인 확인 중...';
+        if (deviceApprovalResult) {
+          deviceApprovalResult.style.display = 'block';
+          deviceApprovalResult.style.color = '#94a3b8';
+          deviceApprovalResult.textContent = '서버에 기기 승인을 요청하고 등록 상태를 확인 중입니다...';
+        }
+
+        try {
+          const devId = await getOrGenerateDeviceId();
+          const res = await fetch('/api/notes?action=device-approval', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${currentToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ deviceId: devId })
+          });
+
+          const data = await res.json();
+          if (res.ok && data.approved) {
+            if (deviceStatusBadge) {
+              deviceStatusBadge.textContent = '등록 기기 (승인 완료)';
+              deviceStatusBadge.className = 'device-badge verified';
+            }
+            if (deviceApprovalResult) {
+              deviceApprovalResult.style.display = 'block';
+              deviceApprovalResult.style.color = '#34d399';
+              deviceApprovalResult.textContent = `✅ 승인 완료: ${data.message || '서버가 이 기기를 등록 기기로 확인했습니다.'}`;
+            }
+            requestApprovalBtn.disabled = true;
+            requestApprovalBtn.textContent = '기기 승인 완료됨';
+            if (unapprovedNotice) unapprovedNotice.style.display = 'none';
+            if (approvedVaultArea) approvedVaultArea.style.display = 'block';
+            loadNotes(currentToken);
+          } else {
+            if (deviceApprovalResult) {
+              deviceApprovalResult.style.display = 'block';
+              deviceApprovalResult.style.color = '#f87171';
+              deviceApprovalResult.textContent = `❌ 승인 실패: ${data.error || '서버가 기기 승인을 거부했습니다.'}`;
+            }
+            requestApprovalBtn.disabled = false;
+            requestApprovalBtn.textContent = '기기 승인 다시 시도';
+          }
+        } catch (err) {
+          if (deviceApprovalResult) {
+            deviceApprovalResult.style.display = 'block';
+            deviceApprovalResult.style.color = '#f87171';
+            deviceApprovalResult.textContent = `❌ 오류: ${err.message || '요청 처리 중 오류가 발생했습니다.'}`;
+          }
+          requestApprovalBtn.disabled = false;
+          requestApprovalBtn.textContent = '기기 승인 다시 시도';
+        }
+      });
     }
 
     loginForm.addEventListener('submit', async (e) => {

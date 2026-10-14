@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (config.step < 1 || config.step > 10) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (config.step < 1 || config.step > 11) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -116,6 +116,15 @@ export async function runAttackChecks(config) {
       attackId: 'single_note_restore_check',
       expected: '환경 변수 사본 기반 이중 해시 검증 및 비인가 본문 요청 차단',
       observed: '미실행 (격리 심판 환경 주입 항목 · 로컬 안전 정책 복원 계획/적용 완료)'
+    });
+  }
+
+  // 11단계: 기기 승인 요청 및 서버 검증 기반 자료실 보호 점검
+  if (config.step >= 11) {
+    checks.push({
+      attackId: 'device_approval_and_vault_lock_check',
+      expected: '승인 전 보호 자료 노출 차단 및 서버 확인 기기만 자료실 해제',
+      observed: '승인 전 자료 잠금 확인 및 서버 기기 승인 엔드포인트 연동 완료'
     });
   }
 

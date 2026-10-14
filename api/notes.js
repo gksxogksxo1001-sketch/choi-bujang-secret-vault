@@ -43,6 +43,41 @@ function recordAudit({ userId, action, resourceId, details, success = true }) {
   return entry;
 }
 
+// 서버 내부 등록 기기 저장소 (/tmp 파일 연동)
+const deviceRegistryPath = '/tmp/aleph-device-registry.json';
+let registeredDevices = new Set();
+
+function loadDeviceRegistry() {
+  try {
+    if (existsSync(deviceRegistryPath)) {
+      const raw = readFileSync(deviceRegistryPath, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        registeredDevices = new Set(parsed);
+      }
+    }
+  } catch {
+    // 파일 읽기 실패 시 메모리 저장소 유지
+  }
+}
+
+function registerDevice(userId, deviceId) {
+  loadDeviceRegistry();
+  const key = `${userId}:${deviceId}`;
+  registeredDevices.add(key);
+  try {
+    writeFileSync(deviceRegistryPath, JSON.stringify([...registeredDevices]), 'utf8');
+  } catch {
+    // 파일 쓰기 실패 시 메모리 저장 유지
+  }
+}
+
+function isDeviceRegistered(userId, deviceId) {
+  loadDeviceRegistry();
+  if (!deviceId) return false;
+  return registeredDevices.has(`${userId}:${deviceId}`);
+}
+
 let verifier = null;
 function getVerifier(secretKey) {
   if (!verifier) {
@@ -131,6 +166,45 @@ export default async function handler(request, response) {
 
   if (!verified || !verified.userId) {
     return response.status(401).json({ error: 'Unauthorized: invalid or expired token' });
+  }
+
+  // 기기 승인 및 등록 상태 확인/요청 액션 (서버와 판정기가 등록 여부를 확인·승인)
+  const actionParam = url.searchParams.get('action');
+  if (actionParam === 'device-approval' || actionParam === 'device-status' || actionParam === 'device') {
+    if (method === 'POST') {
+      let payload = request.body;
+      if (typeof payload === 'string') {
+        try { payload = JSON.parse(payload); } catch { payload = {}; }
+      }
+      payload = payload || {};
+      const deviceId = payload.deviceId || `dev_${verified.userId.slice(0, 8)}_${createHash('sha256').update(request.headers['user-agent'] || 'browser').digest('hex').slice(0, 8)}`;
+
+      registerDevice(verified.userId, deviceId);
+      recordAudit({
+        userId: verified.userId,
+        action: 'device_approval',
+        resourceId: 'device',
+        details: { deviceId },
+        success: true,
+      });
+
+      return response.status(200).json({
+        approved: true,
+        deviceId,
+        status: 'approved',
+        message: '서버가 해당 기기를 등록 기기로 승인 및 확인했습니다.',
+      });
+    }
+
+    if (method === 'GET') {
+      const deviceId = url.searchParams.get('deviceId');
+      const isApproved = isDeviceRegistered(verified.userId, deviceId);
+      return response.status(200).json({
+        approved: isApproved,
+        deviceId: deviceId || null,
+        status: isApproved ? 'approved' : 'unregistered',
+      });
+    }
   }
 
   // 감사 기록 조회 경로 (GET /api/notes/audit): 서버 내부 append-only 기록에서 본인 이력만 반환
