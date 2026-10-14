@@ -63,8 +63,8 @@ function loadDeviceRegistry() {
 
 function registerDevice(userId, deviceId) {
   loadDeviceRegistry();
-  const key = `${userId}:${deviceId}`;
-  registeredDevices.add(key);
+  const entry = `${userId}:${deviceId}`;
+  registeredDevices.add(entry);
   try {
     writeFileSync(deviceRegistryPath, JSON.stringify([...registeredDevices]), 'utf8');
   } catch {
@@ -197,7 +197,7 @@ export default async function handler(request, response) {
     }
 
     if (method === 'GET') {
-      const deviceId = url.searchParams.get('deviceId');
+      const deviceId = url.searchParams.get('deviceId') || `dev_${verified.userId.slice(0, 8)}_${createHash('sha256').update(request.headers['user-agent'] || 'browser').digest('hex').slice(0, 8)}`;
       const isApproved = isDeviceRegistered(verified.userId, deviceId);
       return response.status(200).json({
         approved: isApproved,
