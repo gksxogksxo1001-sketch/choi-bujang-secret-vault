@@ -178,7 +178,8 @@
         const response = await fetch('/api/notes?resourceId=notes', {
           cache: 'no-store',
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${token}`,
+            'X-Requested-With': 'com.aleph.vault'
           }
         });
         if (!response.ok) throw new Error('자료를 읽을 수 없습니다 (인증 필요).');
@@ -244,7 +245,8 @@
                 method: 'PUT',
                 headers: {
                   'Authorization': `Bearer ${currentToken}`,
-                  'Content-Type': 'application/json'
+                  'Content-Type': 'application/json',
+                  'X-Requested-With': 'com.aleph.vault'
                 },
                 body: JSON.stringify({ title: newTitle, body: newBody, resourceId: 'notes' })
               });
@@ -264,7 +266,8 @@
               const res = await fetch(`/api/notes/${note.id}?resourceId=notes`, {
                 method: 'DELETE',
                 headers: {
-                  'Authorization': `Bearer ${currentToken}`
+                  'Authorization': `Bearer ${currentToken}`,
+                  'X-Requested-With': 'com.aleph.vault'
                 }
               });
               if (res.ok) {
@@ -505,7 +508,8 @@
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${currentToken}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'com.aleph.vault'
         },
         body: JSON.stringify({ title, body, resourceId: 'notes' })
       });
