@@ -1,11 +1,9 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 import { createLoginVerifier } from '../src/verify-login.mjs';
 
 const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
-
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 // 서버 내부 append-only 감사 기록 저장소 (/tmp 파일 연동으로 서버리스 인스턴스 간 영속화 보완)
 const auditFilePath = '/tmp/aleph-audit-logs.json';
