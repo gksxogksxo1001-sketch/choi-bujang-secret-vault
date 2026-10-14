@@ -132,6 +132,7 @@
     // 브라우저 로컬 저장소 및 과거 세션 데이터 안전 초기화
     try {
       localStorage.clear();
+      sessionStorage.clear();
     } catch {}
 
     const unauthView = document.querySelector('#unauthenticated-view');
@@ -475,8 +476,6 @@
           return;
         }
 
-        sessionStorage.setItem('access_token', data.access_token);
-        sessionStorage.setItem('user_email', data.email);
         updateAuthState({ access_token: data.access_token, user: { email: data.email } });
       } catch (err) {
         authError.textContent = `로그인 실패: ${err.message || '네트워크 오류가 발생했습니다.'}`;
@@ -487,8 +486,6 @@
     });
 
     logoutBtn.addEventListener('click', () => {
-      sessionStorage.removeItem('access_token');
-      sessionStorage.removeItem('user_email');
       try {
         localStorage.clear();
         sessionStorage.clear();
@@ -523,14 +520,7 @@
       }
     });
 
-    // 세션 복원
-    const savedToken = sessionStorage.getItem('access_token');
-    const savedEmail = sessionStorage.getItem('user_email');
-    if (savedToken && savedEmail) {
-      updateAuthState({ access_token: savedToken, user: { email: savedEmail } });
-    } else {
-      updateAuthState(null);
-    }
+    updateAuthState(null);
 
     // 오프라인 상태 감지 및 안내
     function updateOnlineStatus() {
