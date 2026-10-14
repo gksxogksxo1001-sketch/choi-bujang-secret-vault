@@ -394,12 +394,15 @@
         }
 
         try {
+          const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
           const res = await fetch('/api/notes?action=device-approval', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${currentToken}`,
-              'Content-Type': 'application/json'
-            }
+              'Content-Type': 'application/json',
+              'X-Requested-With': 'com.aleph.vault'
+            },
+            body: JSON.stringify({ appInstalled: true, standalone: isStandalone })
           });
 
           const data = await res.json();

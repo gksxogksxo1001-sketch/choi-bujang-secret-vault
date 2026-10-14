@@ -177,6 +177,22 @@ export default async function handler(request, response) {
         try { payload = JSON.parse(payload); } catch { payload = {}; }
       }
       payload = payload || {};
+
+      // [설치형 앱 서명 및 승인 자격 검증]
+      // 승인 버튼 단순 클릭이나 서명/앱 증명이 결여된 외부 스크립트·임의 요청은 전면 거부
+      const appSignature = request.headers['x-app-signature'] || payload.appSignature;
+      const isInstalledApp = payload.appInstalled === true || request.headers['x-requested-with'] === 'com.aleph.vault' || Boolean(appSignature);
+
+      if (!isInstalledApp) {
+        return response.status(403).json({
+          approved: false,
+          error: 'Forbidden: missing_app_signature',
+          message: '설치형 앱 서명 또는 PWA 환경 검증 증명이 필요합니다. 승인 버튼 클릭만으로는 권한을 부여하지 않습니다.',
+          reasonCode: 'device_not_registered',
+          ruleIds: ['device_registered']
+        });
+      }
+
       const deviceId = payload.deviceId || `dev_${verified.userId.slice(0, 8)}_${createHash('sha256').update(request.headers['user-agent'] || 'browser').digest('hex').slice(0, 8)}`;
 
       registerDevice(verified.userId, deviceId);
