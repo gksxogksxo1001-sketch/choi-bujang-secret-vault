@@ -448,6 +448,19 @@ export default async function handler(request, response) {
     }
   }
 
+  // 기기 승인 검증: 서버가 이 기기를 등록 기기로 확인한 뒤에만 보호 자료실(내 메모) 접근 허용
+  const currentDevId = request.headers['x-device-id'] || url.searchParams.get('deviceId') || `dev_${verified.userId.slice(0, 8)}_${createHash('sha256').update(request.headers['user-agent'] || 'browser').digest('hex').slice(0, 8)}`;
+  const deviceApproved = isDeviceRegistered(verified.userId, currentDevId);
+
+  if (!isAnnouncement && !deviceApproved) {
+    return response.status(403).json({
+      error: 'Forbidden: device_not_registered',
+      message: '서버가 등록 기기로 확인하기 전에는 보호 자료실에 접근할 수 없습니다.',
+      reasonCode: 'device_not_registered',
+      ruleIds: ['device_registered']
+    });
+  }
+
   // 1. GET 요청
   if (method === 'GET') {
     // 1-1. 강사 공지 조회 (다른 구역 자료와 분리)
