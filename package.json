@@ -14,7 +14,8 @@
     "policy:diff": "node scripts/diff-policy.mjs",
     "policy:restore": "node scripts/restore-policy.mjs",
     "restore:plan": "node scripts/restore-plan.mjs",
-    "restore:apply": "node scripts/restore-apply.mjs"
+    "restore:apply": "node scripts/restore-apply.mjs",
+    "measure": "node scripts/measure-all.mjs"
   },
   "engines": {
     "node": ">=22"

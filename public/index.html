@@ -142,6 +142,34 @@
         </table>
       </div>
 
+      <!-- 1~11단계 정상·금지 요청 종합 실측 검증 표 -->
+      <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #1e3a5f;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <strong style="color: #ecf4ff; font-size: 15px;">1~11단계 정상·금지 요청 종합 실측 검증 표</strong>
+            <span style="display: block; font-size: 12px; color: #94a3b8; margin-top: 2px;">(41종 총공세 시험은 임의 통과 없이 미실행으로 유지)</span>
+          </div>
+          <span id="measurements-summary-badge" class="badge-measured">실측 집계 중...</span>
+        </div>
+        <div style="overflow-x: auto;">
+          <table class="ops-table" id="measurements-table">
+            <thead>
+              <tr>
+                <th style="width: 50px;">단계</th>
+                <th style="width: 75px;">구분</th>
+                <th>대상 및 기대 결과</th>
+                <th>실제 API 결과</th>
+                <th>요청 ID</th>
+                <th>확인 시각</th>
+              </tr>
+            </thead>
+            <tbody id="measurements-table-body">
+              <tr><td colspan="6" style="text-align: center; color: #94a3b8;">실측 결과를 불러오는 중입니다...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="audit-summary-box" id="audit-summary-box" style="display: none;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
           <strong style="color: #f1f5f9;">가린 서버 감사 기록 (/api/notes/audit)</strong>
@@ -697,6 +725,78 @@
     }
 
     loadOperationsSummary();
+
+    // 12단계: 1~11단계 정상·금지 요청 종합 실측 검증 표 로드
+    async function loadMeasurementsTable() {
+      const tbody = document.querySelector('#measurements-table-body');
+      const summaryBadge = document.querySelector('#measurements-summary-badge');
+      try {
+        const res = await fetch('/api/operations?action=measure', { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const list = Array.isArray(data?.measurements) ? data.measurements : [];
+
+        if (summaryBadge) {
+          summaryBadge.textContent = `실측 완료: 정상 허용·금지 거부 ${data.executed || 0}건 · 미실행 ${data.unexecuted || 0}건`;
+        }
+
+        if (tbody) {
+          tbody.replaceChildren(...list.map(item => {
+            const tr = document.createElement('tr');
+
+            const tdStage = document.createElement('td');
+            tdStage.textContent = `${item.stage}단계`;
+
+            const tdType = document.createElement('td');
+            const typeSpan = document.createElement('span');
+            if (item.type === '정상 요청') {
+              typeSpan.className = 'badge-measured';
+              typeSpan.textContent = '정상 (허용)';
+            } else if (item.type === '금지 요청') {
+              typeSpan.style.background = '#991b1b';
+              typeSpan.style.color = '#fecaca';
+              typeSpan.style.padding = '2px 6px';
+              typeSpan.style.borderRadius = '4px';
+              typeSpan.style.fontSize = '11px';
+              typeSpan.style.fontWeight = '700';
+              typeSpan.textContent = '금지 (거부)';
+            } else {
+              typeSpan.className = 'badge-notrun';
+              typeSpan.textContent = '미실행';
+            }
+            tdType.appendChild(typeSpan);
+
+            const tdExpected = document.createElement('td');
+            tdExpected.innerHTML = `<strong style="display:block; color:#ecf4ff; font-size:12px;">${item.target}</strong><span style="color:#94a3b8; font-size:11px;">기대: ${item.expected}</span>`;
+
+            const tdActual = document.createElement('td');
+            tdActual.style.fontSize = '12px';
+            tdActual.style.color = item.passed ? '#34d399' : (item.type === '미실행' ? '#94a3b8' : '#f87171');
+            tdActual.textContent = item.actual;
+
+            const tdReqId = document.createElement('td');
+            tdReqId.style.fontFamily = 'monospace';
+            tdReqId.style.fontSize = '11px';
+            tdReqId.style.color = '#8ad8df';
+            tdReqId.textContent = item.requestId ? item.requestId.slice(0, 13) + '...' : '-';
+
+            const tdTime = document.createElement('td');
+            tdTime.style.fontSize = '11px';
+            tdTime.style.color = '#cbd5e1';
+            tdTime.textContent = item.checkedAt ? new Date(item.checkedAt).toLocaleTimeString() : '-';
+
+            tr.append(tdStage, tdType, tdExpected, tdActual, tdReqId, tdTime);
+            return tr;
+          }));
+        }
+      } catch (err) {
+        if (tbody) {
+          tbody.innerHTML = `<tr><td colspan="6" style="color: #f87171;">실측 표 로드 실패: ${err.message}</td></tr>`;
+        }
+      }
+    }
+
+    loadMeasurementsTable();
 
     // 오프라인 상태 감지 및 안내
     function updateOnlineStatus() {
