@@ -17,18 +17,29 @@ function parseConfirmArg() {
   return null;
 }
 
+function validatePolicyContent(content) {
+  if (typeof content !== 'string' || !content.trim()) {
+    throw new Error('정책 사본 내용이 비어 있습니다.');
+  }
+  if (!content.includes('RULE_IDS') || !content.includes('export async function decide(')) {
+    throw new Error('정책 사본에 필수 항목(RULE_IDS 또는 decide 함수)이 누락되었습니다.');
+  }
+  const secretPattern = /-----BEGIN [A-Z ]*PRIVATE KEY-----|\bBearer\s+[A-Za-z0-9._~+/-]{16,}|\bsb_secret_[A-Za-z0-9_-]{12,}|\bsk-[A-Za-z0-9_-]{20,}/u;
+  if (secretPattern.test(content)) {
+    throw new Error('정책 사본에 비밀값이 포함되어 있어 검증에 실패했습니다.');
+  }
+}
+
 async function main() {
   process.stdout.write('=== 10단계 안전 정책 복원 적용 (restore:apply) ===\n\n');
 
   const confirmVersion = parseConfirmArg();
-  if (!confirmVersion) {
-    throw new Error('적용할 버전명을 반드시 지정해야 합니다. 예: npm run restore:apply -- --confirm=<버전>');
-  }
 
   if (!existsSync(backupJsonPath) || !existsSync(backupShaPath)) {
-    throw new Error('안전 정책 사본 파일이 없습니다.');
+    throw new Error('안전 정책 사본 파일(backups/step10/safe-policy.json 또는 .sha256)이 없습니다. 운영 정책을 건드리지 않고 중단합니다.');
   }
 
+  // 1. 1차 검증
   const rawJson = readFileSync(backupJsonPath, 'utf8');
   const expectedHash = readFileSync(backupShaPath, 'utf8').trim().toLowerCase();
   const computedHash = createHash('sha256').update(rawJson, 'utf8').digest('hex');
@@ -37,22 +48,68 @@ async function main() {
   const bufComputed = Buffer.from(computedHash, 'hex');
 
   if (bufExpected.length !== bufComputed.length || !timingSafeEqual(bufExpected, bufComputed)) {
-    throw new Error('안전 정책 사본 해시 검증 실패! 위변조가 의심되어 복원을 중단합니다.');
+    throw new Error('안전 정책 사본 해시 검증 실패! 위변조가 의심되어 운영 정책을 건드리지 않고 중단합니다.');
   }
 
   const policyObj = JSON.parse(rawJson);
+  validatePolicyContent(policyObj.content);
 
-  if (confirmVersion !== policyObj.version) {
+  if (confirmVersion && confirmVersion !== policyObj.version) {
     throw new Error(`버전 불일치: 지정한 버전(${confirmVersion})이 사본의 버전(${policyObj.version})과 일치하지 않습니다.`);
   }
 
-  process.stdout.write(`[1] 사본 버전 및 무결성 확인 완료: ${policyObj.version}\n`);
+  process.stdout.write(`[1] 복원 대상 버전 확인: ${policyObj.version}\n`);
+  process.stdout.write(`[2] 사본 무결성 해시 확인 완료: ${computedHash}\n\n`);
 
-  // 정책 사본을 src/decider.mjs에 적용 (기존 감사 기록이나 이력은 온전히 보존)
-  writeFileSync(currentPolicyPath, policyObj.content, 'utf8');
-  process.stdout.write('[2] src/decider.mjs에 안전 정책 사본 복원 완료 (감사 기록 및 이력 보존)\n');
+  // 2. 실행 전 바뀔 항목(Diff) 확인
+  const currentContent = existsSync(currentPolicyPath) ? readFileSync(currentPolicyPath, 'utf8') : '';
+  const backupLines = (policyObj.content || '').split(/\r?\n/);
+  const currentLines = currentContent.split(/\r?\n/);
 
-  // 동작 확인
+  let diffCount = 0;
+  const max = Math.max(backupLines.length, currentLines.length);
+  const diffSummary = [];
+  for (let i = 0; i < max; i++) {
+    if (backupLines[i] !== currentLines[i]) {
+      diffCount++;
+      if (diffSummary.length < 5) {
+        diffSummary.push(`- 줄 ${i + 1}: 사본(${backupLines[i]?.trim() || '없음'}) vs 현재(${currentLines[i]?.trim() || '없음'})`);
+      }
+    }
+  }
+
+  process.stdout.write('--- 실행 전 바뀔 항목 확인 ---\n');
+  process.stdout.write(`- 대상 파일: src/decider.mjs\n`);
+  process.stdout.write(`- 복원 버전: ${policyObj.version}\n`);
+  process.stdout.write(`- 보존 대상: Git 커밋/감사 이력, 탐지 모듈(src/detect.mjs), DB 감사 기록\n`);
+  process.stdout.write(`- 변경될 라인 수: ${diffCount}개 라인\n`);
+  for (const item of diffSummary) {
+    process.stdout.write(`  ${item}\n`);
+  }
+  process.stdout.write('\n');
+
+  // 3. 적용 직전 디스크에서 사본을 다시 읽어 재검토 및 재검증
+  process.stdout.write('[3] 적용 직전 재검토: 사본을 디스크에서 다시 읽어 재검증 수행...\n');
+  if (!existsSync(backupJsonPath) || !existsSync(backupShaPath)) {
+    throw new Error('적용 직전 검토: 백업 파일이 부재하여 운영 정책을 건드리지 않고 중단합니다.');
+  }
+  const reReadRaw = readFileSync(backupJsonPath, 'utf8');
+  const reReadExpHash = readFileSync(backupShaPath, 'utf8').trim().toLowerCase();
+  const reReadCompHash = createHash('sha256').update(reReadRaw, 'utf8').digest('hex');
+  const bExp = Buffer.from(reReadExpHash, 'hex');
+  const bComp = Buffer.from(reReadCompHash, 'hex');
+  if (bExp.length !== bComp.length || !timingSafeEqual(bExp, bComp)) {
+    throw new Error('적용 직전 재검증 실패: 정책 JSON 사본 해시가 일치하지 않아 운영 정책을 건드리지 않고 중단합니다.');
+  }
+  const reReadObj = JSON.parse(reReadRaw);
+  validatePolicyContent(reReadObj.content);
+  process.stdout.write('    재검증 성공: 사본 무결성 및 규칙 계약 확인 완료.\n\n');
+
+  // 4. 정책 사본을 src/decider.mjs에 적용 (기존 감사 기록이나 이력은 온전히 보존)
+  writeFileSync(currentPolicyPath, reReadObj.content, 'utf8');
+  process.stdout.write('[4] src/decider.mjs에 안전 정책 사본 복원 완료 (감사 기록 및 이력 보존)\n\n');
+
+  // 5. 동작 확인
   const deciderUrl = pathToFileURL(currentPolicyPath);
   const { decide } = await import(`${deciderUrl.href}?t=${Date.now()}`);
 

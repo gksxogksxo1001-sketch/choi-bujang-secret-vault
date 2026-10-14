@@ -14,36 +14,24 @@ function git(...args) {
 
 // 1. 침해 전 검증된 안전 정책 사본 탐색 및 무결성 검증
 function findVerifiedBackup() {
-  // 별도 백업 파일이 있는 경우
-  const backupPath = join(root, 'backup', 'decider.mjs');
-  if (existsSync(backupPath)) {
-    const content = readFileSync(backupPath, 'utf8');
-    return { source: '로컬 백업 파일 (backup/decider.mjs)', version: 'local-backup', content };
+  const backupMjsPath = join(root, 'backup', 'decider.mjs');
+  if (existsSync(backupMjsPath)) {
+    const content = readFileSync(backupMjsPath, 'utf8');
+    return { source: '로컬 백업 파일 (backup/decider.mjs)', version: 'local-backup-mjs', content };
   }
 
-  // Git에서 침해 전 마지막 검증된 저장점 커밋 탐색
-  try {
-    const logList = git('log', '--grep=저장점', '--format=%H %s', '-n', '5')
-      .split(/\r?\n/)
-      .filter(Boolean);
-
-    if (!logList.length) {
-      throw new Error('검증된 저장점 커밋을 찾을 수 없습니다.');
-    }
-
-    const [latestCheckpoint] = logList;
-    const [commitHash, ...subjectParts] = latestCheckpoint.split(' ');
-    const commitTitle = subjectParts.join(' ');
-    const content = git('show', `${commitHash}:src/decider.mjs`);
-
+  const backupJsonPath = join(root, 'backups', 'step10', 'safe-policy.json');
+  if (existsSync(backupJsonPath)) {
+    const raw = readFileSync(backupJsonPath, 'utf8');
+    const parsed = JSON.parse(raw);
     return {
-      source: `Git 검증 저장점 (${commitTitle})`,
-      version: commitHash.slice(0, 12),
-      content,
+      source: '안전 정책 JSON 사본 (backups/step10/safe-policy.json)',
+      version: parsed.version || 'v1.0.0-safe-policy',
+      content: parsed.content || raw,
     };
-  } catch (error) {
-    throw new Error(`안전 정책 사본 탐색 실패: ${error.message}`);
   }
+
+  throw new Error('안전 정책 사본(backup/decider.mjs 또는 backups/step10/safe-policy.json)을 찾을 수 없습니다.');
 }
 
 // 사본 무결성 및 계약 검증

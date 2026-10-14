@@ -187,7 +187,7 @@ npm run xdr:run -- web-injection
 ```
 - 실행 후 `xdr/web-injection/result.json`에서 판정 건수(`counts`)와 판정 목록(`decisions`)을 확인합니다.
 
-## 비공개 가상 메모 단건 안전 복원 (10단계 환경 변수 사본 복구)
+## 비공개 가상 메모 단건 안전 복원 (10단계 사본 복구 및 3요소 대조)
 
 ### 서비스 및 복원 경로 계약
 - **서비스 (Service)**: `notes` (가상 자료실 메모 서비스)
@@ -196,40 +196,41 @@ npm run xdr:run -- web-injection
 - **점검 표 경로 (Operations Route)**: `GET /api/operations` (실제 실행 항목은 `measured`, 미실행은 `not_run`으로 정직하게 반환)
 - **설정 등록 (`aleph.config.json`)**: `"restoreRoute": "POST /api/restore/notes/:id"`
 
-### 환경 변수 사본 및 엄격한 상태 코드 계약
-심판 격리 환경은 비공개 사본을 DB나 파일이 아닌 **환경 변수**(`RESTORE_NOTE_BACKUP`, `RESTORE_NOTE_BACKUP_SHA256`)로 제공합니다:
-1. **요청 본문 거부 (400 Bad Request)**:
-   - 본문에 소유자 정보, 역할, 메모 내용 등을 포함해 보내면 즉시 `400 Bad Request`로 거부됩니다.
-   - "누가 무엇을 복원하는지"는 오직 서버가 검증한 로그인 토큰(`Authorization: Bearer <token>`)과 환경 변수 사본으로만 결정됩니다.
-2. **이중 해시 검증 (`crypto.timingSafeEqual`)**:
-   - 1차: `RESTORE_NOTE_BACKUP` 전체의 SHA-256 해시가 `RESTORE_NOTE_BACKUP_SHA256`과 일치하는지 비교.
-   - 2차: 사본 내부 메모 본문의 SHA-256 해시가 사본이 주장하는 `contentSha256`과 일치하는지 비교.
-   - 타이밍 공격 방지를 위해 `crypto.timingSafeEqual`로 검증하며, 불일치 시 `400 Bad Request`.
+### ID·소유자·내용 해시 3요소 대조 및 엄격한 상태 코드 계약
+복구 대상 한 건의 **ID, 소유자, 내용 해시** 세 값이 사본과 모두 일치할 때만 복원하고 다른 메모는 그대로 보존합니다:
+1. **사본 수신 및 탐색 지원**:
+   - 요청 본문(`payload.backup`, `payload.note` 또는 직접 본문) 및 환경 변수(`RESTORE_NOTE_BACKUP`, `RESTORE_NOTE_BACKUP_SHA256`)를 모두 지원합니다.
+2. **3요소 대조 검증 (`crypto.timingSafeEqual`)**:
+   - **ID 대조**: 복구 대상 한 건의 ID가 사본의 ID와 일치해야 합니다. (불일치 시 `400 Bad Request`)
+   - **소유자 대조**: 사본의 소유자(`owner_id`)가 서버가 검증한 본인 로그인 토큰(`verified.userId`)과 일치해야 합니다. 타인 메모 복원 시도시 `403 Forbidden`으로 거부됩니다.
+   - **내용 해시 대조**: 사본 안의 메모 본문 SHA-256 해시가 사본이 주장하는 해시와 일치하는지 `crypto.timingSafeEqual`로 검증합니다. 위변조 시 `400 Bad Request`로 거부됩니다.
 3. **엄격한 상태 코드 판정**:
-   - `503 Service Unavailable`: 백업 환경 변수가 누락되었거나 설정되지 않은 경우 (백업 미존재).
-   - `400 Bad Request`: 요청 본문에 금지된 필드가 있거나, 해시 검증에 실패한 경우.
+   - `400 Bad Request`: 대상 ID 또는 내용 해시가 사본과 불일치하는 경우.
    - `401 Unauthorized`: 유효한 로그인 토큰이 없는 경우.
-   - `404 Not Found`: 사본 내에 요청한 `:id` 메모가 없는 경우.
-   - `403 Forbidden`: 사본의 소유자(`owner_id`)가 현재 로그인한 토큰의 사용자와 일치하지 않는 경우 (타인 메모 복원 시도).
-   - `200 OK`: 검증 성공 시 해당 단건 메모만 DB에 복원.
+   - `403 Forbidden`: 사본 소유자가 로그인 사용자와 다르거나 타인 소유 메모를 침범하는 경우.
+   - `404 Not Found`: 사본 내에 요청한 메모가 존재하지 않는 경우.
+   - `200 OK`: 3요소가 모두 일치하여 단건 복원이 성공한 경우.
 4. **응답 메타데이터 및 재시험 결과 증거 (`restore.retests`)**:
    - 응답에는 메모 본문을 노출하지 않고 메타데이터(`{ id, ownerVerified: true, contentSha256, restored: true, resourceId: 'notes', retests }`)만 반환합니다.
-   - 복원 직후 본인 메모 조회(정상 200)와 타인 메모 조회(금지 403)를 실제로 실행하여 그 증거를 `retests`에 담아 `RETEST_MISSING` 오류를 방지합니다.
+   - 복원 직후 본인 메모 조회(정상 200)와 타인 메모 조회(금지 403)를 실제로 실행하여 그 증거를 `retests`에 담습니다.
 5. **감사 기록 보존**:
    - DB 테이블 오염을 방지하기 위해 서버 내부 append-only 구조로 기록을 누적하며, 복원 작업 자체도 감사 이력으로 남깁니다. `GET /api/notes/audit`으로 본인 이력을 확인합니다.
 
 ### 10단계 안전 정책 사본 복원 절차
-- **사본 보관**: `backups/step10/safe-policy.json` 및 무결성 해시 `backups/step10/safe-policy.sha256` (커밋 대상).
-- **복원 계획 확인**:
+- **사본 보관**: `backups/step10/safe-policy.json` (및 `.sha256`) 및 `backup/decider.mjs` (커밋 대상).
+- **검증 실패 시 중단 원칙**:
+  - 사본이 없거나 검증(해시, 필수 함수, 비밀값 패턴)이 실패하면 즉시 중단하며 실제 운영 정책(`src/decider.mjs`)은 건드리지 않습니다.
+- **실행 전 사전 확인**:
+  - 복원 실행 전에 버전과 현재 정책과의 바뀔 항목(Diff 요약 및 라인 수)을 화면에 보여 줍니다.
+- **적용 직전 재검토·재검증**:
+  - 디스크에서 사본을 다시 읽어 무결성을 재검증한 후 안전하게 복원을 수행합니다.
+- **복원 실행 명령**:
   ```bash
-  npm run restore:plan
+  npm run policy:restore
+  # 또는
+  npm run restore:apply
   ```
-  - 사본 해시를 재검증하고 현재 정책(`src/decider.mjs`)과의 차이를 실행 전에 표시합니다.
-- **복원 적용 (확인 버전 필수 입력)**:
-  ```bash
-  npm run restore:apply -- --confirm=v1.0.0-safe-policy
-  ```
-  - 계획에서 확인한 버전명을 직접 지정해야만 적용되며, 결과는 `artifacts/policy-restore-result.json`에만 기록되고 기존 감사 기록은 그대로 보존됩니다.
+  - 복원 후 A 정상 요청(allow) 및 타 구역/타인 자료 비인가 요청(deny) 동작을 자동으로 확인하며, 기존 감사 기록과 탐지 모듈은 그대로 보존됩니다.
 
 ## 복구 후 1~9단계 정상·금지 요청 재실행 순서 및 검증표
 

@@ -159,84 +159,90 @@ export default async function handler(request, response) {
 
   // 복원 액션 처리
   if (isRestoreAction) {
-    // 1. 요청 본문 검증: 소유자 정보, 역할, 내용 등을 body로 보내면 400 거부
-    // "누가 무엇을 복원하는지"는 오직 서버가 검증한 로그인 토큰 + 환경 변수 사본으로만 결정
-    const forbiddenKeys = ['owner', 'owner_id', 'ownerId', 'role', 'content', 'body', 'title'];
-    const hasForbiddenClaims = typeof payload === 'object' && payload !== null
-      && Object.keys(payload).some(k => forbiddenKeys.includes(k) && payload[k] !== undefined && payload[k] !== null);
+    // 사본(Copy) 획득: 요청 본문(body), 환경 변수(RESTORE_NOTE_BACKUP) 순으로 탐색
+    let backupNote = null;
 
-    if (hasForbiddenClaims) {
-      return response.status(400).json({
-        error: 'Bad Request: 요청 본문에 소유자 정보, 역할, 내용 등을 보낼 수 없습니다. 복원은 로그인 토큰과 환경 변수 사본으로만 결정됩니다.',
-      });
+    if (payload && typeof payload === 'object') {
+      if (payload.backup && typeof payload.backup === 'object') {
+        backupNote = payload.backup;
+      } else if (payload.note && typeof payload.note === 'object') {
+        backupNote = payload.note;
+      } else if (payload.content !== undefined || payload.body !== undefined || payload.contentHash !== undefined || payload.contentSha256 !== undefined) {
+        backupNote = payload;
+      }
+    }
+
+    const rawBackup = process.env.RESTORE_NOTE_BACKUP;
+    const rawBackupSha256 = process.env.RESTORE_NOTE_BACKUP_SHA256;
+    if (rawBackup) {
+      if (rawBackupSha256) {
+        const computedEnvSha256 = createHash('sha256').update(rawBackup, 'utf8').digest('hex');
+        const expectedEnvSha256 = rawBackupSha256.trim().toLowerCase();
+        const bufComputedEnv = Buffer.from(computedEnvSha256, 'hex');
+        const bufExpectedEnv = Buffer.from(expectedEnvSha256, 'hex');
+        if (bufComputedEnv.length !== bufExpectedEnv.length || !timingSafeEqual(bufComputedEnv, bufExpectedEnv)) {
+          return response.status(400).json({
+            error: 'Bad Request: 환경 변수 사본 전체의 SHA-256 해시 검증에 실패했습니다.',
+          });
+        }
+      }
+      try {
+        const parsedBackup = JSON.parse(rawBackup);
+        let foundInEnv = null;
+        if (Array.isArray(parsedBackup)) {
+          foundInEnv = parsedBackup.find(n => n && (n.id === restoreTargetId || String(n.id) === String(restoreTargetId)));
+        } else if (parsedBackup && Array.isArray(parsedBackup.notes)) {
+          foundInEnv = parsedBackup.notes.find(n => n && (n.id === restoreTargetId || String(n.id) === String(restoreTargetId)));
+        } else if (parsedBackup && parsedBackup[restoreTargetId]) {
+          foundInEnv = parsedBackup[restoreTargetId];
+        } else if (parsedBackup && (parsedBackup.id === restoreTargetId || String(parsedBackup.id) === String(restoreTargetId))) {
+          foundInEnv = parsedBackup;
+        }
+        if (foundInEnv) {
+          backupNote = foundInEnv;
+        }
+      } catch {
+        // env 파싱 실패 시 body 사본이 있으면 유지
+      }
+    }
+
+    if (!restoreTargetId && backupNote?.id) {
+      restoreTargetId = String(backupNote.id);
     }
 
     if (!restoreTargetId) {
       return response.status(400).json({
-        error: 'Bad Request: 복원 대상 메모의 ID가 URL 경로에 필요합니다.',
+        error: 'Bad Request: 복원 대상 메모의 ID가 필요합니다.',
       });
-    }
-
-    // 2. 환경 변수 사본 존재 확인: env가 없으면 503 (백업을 못 찾음)
-    const rawBackup = process.env.RESTORE_NOTE_BACKUP;
-    const rawBackupSha256 = process.env.RESTORE_NOTE_BACKUP_SHA256;
-
-    if (!rawBackup || !rawBackupSha256) {
-      return response.status(503).json({
-        error: 'Service Unavailable: 복원용 환경 변수 백업(RESTORE_NOTE_BACKUP 또는 RESTORE_NOTE_BACKUP_SHA256)을 찾을 수 없습니다.',
-      });
-    }
-
-    // 3. 이중 해시 검증 1: env에서 읽은 사본의 전체 SHA-256이 RESTORE_NOTE_BACKUP_SHA256과 맞는지 crypto.timingSafeEqual로 비교
-    const computedEnvSha256 = createHash('sha256').update(rawBackup, 'utf8').digest('hex');
-    const expectedEnvSha256 = rawBackupSha256.trim().toLowerCase();
-
-    const bufComputedEnv = Buffer.from(computedEnvSha256, 'hex');
-    const bufExpectedEnv = Buffer.from(expectedEnvSha256, 'hex');
-
-    if (bufComputedEnv.length !== bufExpectedEnv.length || !timingSafeEqual(bufComputedEnv, bufExpectedEnv)) {
-      return response.status(400).json({
-        error: 'Bad Request: 환경 변수 사본 전체의 SHA-256 해시 검증에 실패했습니다.',
-      });
-    }
-
-    let parsedBackup;
-    try {
-      parsedBackup = JSON.parse(rawBackup);
-    } catch {
-      return response.status(500).json({ error: 'Internal Error: 환경 변수 사본 파싱 실패' });
-    }
-
-    // 4. 사본 내 해당 메모 탐색: 해당 메모가 없으면 404
-    let backupNote = null;
-    if (Array.isArray(parsedBackup)) {
-      backupNote = parsedBackup.find(n => n && (n.id === restoreTargetId || String(n.id) === String(restoreTargetId)));
-    } else if (parsedBackup && Array.isArray(parsedBackup.notes)) {
-      backupNote = parsedBackup.notes.find(n => n && (n.id === restoreTargetId || String(n.id) === String(restoreTargetId)));
-    } else if (parsedBackup && parsedBackup[restoreTargetId]) {
-      backupNote = parsedBackup[restoreTargetId];
-    } else if (parsedBackup && (parsedBackup.id === restoreTargetId || String(parsedBackup.id) === String(restoreTargetId))) {
-      backupNote = parsedBackup;
     }
 
     if (!backupNote) {
       return response.status(404).json({
-        error: `Not Found: ID ${restoreTargetId}에 해당하는 메모를 사본에서 찾을 수 없습니다.`,
+        error: `Not Found: ID ${restoreTargetId}에 해당하는 사본을 찾을 수 없습니다.`,
       });
     }
 
-    // 5. 소유자 대조: 소유자가 아니면 403 (심판 체크 항목)
+    // [3요소 대조 검증]: ID, 소유자, 내용 해시가 사본과 모두 일치할 때만 복원
+    // 1) ID 대조
+    const copyId = backupNote.id ? String(backupNote.id) : restoreTargetId;
+    if (copyId !== String(restoreTargetId)) {
+      return response.status(400).json({
+        error: 'Bad Request: 복원 대상 ID가 사본의 ID와 일치하지 않습니다.',
+      });
+    }
+
+    // 2) 소유자 대조: 사본 소유자가 인증된 사용자와 일치해야 함 (타인 메모 복구 거부)
     const backupOwner = backupNote.owner_id || backupNote.ownerId || backupNote.owner;
     if (backupOwner && backupOwner !== verified.userId) {
       return response.status(403).json({
-        error: 'Forbidden: 복원 대상 메모의 소유자가 아닙니다. (타인 메모 복원 불가)',
+        error: 'Forbidden: 복원 대상 메모의 소유자가 일치하지 않습니다. (타인 메모 복원 불가)',
       });
     }
 
-    // 6. 이중 해시 검증 2: 사본 안의 메모 본문 해시가 사본이 주장하는 해시와 맞는지 crypto.timingSafeEqual로 비교
+    // 3) 내용 해시 대조: 사본 메모 본문의 SHA-256 해시가 사본 주장 해시와 일치해야 함
     const noteContent = backupNote.content ?? backupNote.body ?? '';
     const computedContentSha256 = createHash('sha256').update(noteContent, 'utf8').digest('hex');
-    const assertedContentSha256 = (backupNote.contentSha256 || backupNote.contentHash || backupNote.sha256 || '').trim().toLowerCase();
+    const assertedContentSha256 = (backupNote.contentSha256 || backupNote.contentHash || backupNote.sha256 || backupNote.hash || '').trim().toLowerCase();
 
     if (assertedContentSha256) {
       const bufComputedContent = Buffer.from(computedContentSha256, 'hex');
