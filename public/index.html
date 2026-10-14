@@ -49,6 +49,18 @@
     .btn-edit:hover { background: #0369a1; }
     .add-note-card { padding: 18px; border: 1px dashed #4a627d; border-radius: 12px; background: #131e2d; }
     .add-note-card h3 { margin: 0 0 12px; font-size: 16px; color: #ecf4ff; }
+    .ops-room-card { margin: 24px 0; padding: 22px; border: 1px solid #38bdf8; border-radius: 14px; background: #0c192c; }
+    .ops-room-card h2 { margin: 0 0 14px; font-size: 20px; color: #38bdf8; display: flex; align-items: center; justify-content: space-between; }
+    .ops-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .ops-stat { padding: 14px; border-radius: 10px; background: #13233a; border: 1px solid #1e3a5f; }
+    .ops-stat strong { font-size: 13px; color: #94a3b8; display: block; margin-bottom: 6px; }
+    .ops-stat .val { font-size: 17px; font-weight: 700; color: #ecf4ff; }
+    .ops-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+    .ops-table th, .ops-table td { padding: 8px 10px; border-bottom: 1px solid #1e3a5f; text-align: left; }
+    .ops-table th { color: #8ad8df; }
+    .badge-measured { background: #065f46; color: #a7f3d0; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; }
+    .badge-notrun { background: #374151; color: #9ca3af; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; }
+    .audit-summary-box { margin-top: 14px; padding: 14px; border-radius: 10px; background: #13233a; border: 1px solid #1e3a5f; font-size: 13px; }
   </style>
 </head>
 <body>
@@ -74,6 +86,69 @@
       <div id="device-action-box" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid #233549; display: none;">
         <button type="button" class="btn btn-primary" id="request-approval-btn">기기 승인 요청</button>
         <div id="device-approval-result" style="margin-top: 10px; font-size: 14px; font-weight: 600; display: none;"></div>
+      </div>
+    </section>
+
+    <!-- 12단계: 탈환 작전실 현황 요약 섹션 -->
+    <section class="ops-room-card" id="ops-room-section">
+      <h2>
+        <span>탈환 작전실 현황</span>
+        <span id="ops-overall-badge" class="badge-measured">작전실 활성</span>
+      </h2>
+      <p style="color: #94a3b8; font-size: 14px; margin-top: 0;">
+        판정기 규칙, 탐지 사건, 회수 상태, 복구 버전의 실제 서버 점검 상태를 요약합니다. (가상 메모 본문은 배제하고 가린 기록과 상태만 대조합니다.)
+      </p>
+
+      <div class="ops-grid">
+        <div class="ops-stat">
+          <strong>판정기 규칙</strong>
+          <div class="val" id="stat-decider-rules">3개 활성</div>
+          <span style="font-size: 12px; color: #38bdf8;">device, step_up, zone</span>
+        </div>
+        <div class="ops-stat">
+          <strong>탐지 사건</strong>
+          <div class="val" id="stat-detect-events">burst_read</div>
+          <span style="font-size: 12px; color: #f59e0b;">10분 120건 초과 탐지</span>
+        </div>
+        <div class="ops-stat">
+          <strong>회수 상태</strong>
+          <div class="val" id="stat-revocation-status"><span class="badge-notrun">미실행 (not_run)</span></div>
+          <span style="font-size: 12px; color: #94a3b8;">운영 반 엔진 연결 전</span>
+        </div>
+        <div class="ops-stat">
+          <strong>복구 버전</strong>
+          <div class="val" id="stat-restore-version">v1.0.0-safe-policy</div>
+          <span style="font-size: 12px; color: #34d399;">단건 사본 대조 검증</span>
+        </div>
+      </div>
+
+      <div style="margin-top: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <strong style="color: #ecf4ff; font-size: 15px;">실제 API 점검 표 (/api/operations)</strong>
+          <span id="ops-summary-counts" style="font-size: 13px; color: #8ad8df;">확인 중...</span>
+        </div>
+        <table class="ops-table">
+          <thead>
+            <tr>
+              <th>단계</th>
+              <th>항목 ID</th>
+              <th>설명</th>
+              <th>상태</th>
+            </tr>
+          </thead>
+          <tbody id="ops-table-body">
+            <tr><td colspan="4" style="text-align: center; color: #94a3b8;">점검 표를 불러오는 중입니다...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="audit-summary-box" id="audit-summary-box" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <strong style="color: #f1f5f9;">가린 서버 감사 기록 (/api/notes/audit)</strong>
+          <span id="audit-count-badge" style="font-size: 12px; color: #8ad8df;">0건 기록됨</span>
+        </div>
+        <p style="margin: 0 0 8px; font-size: 12px; color: #94a3b8;">본문 없이 작업 종류, 자원 ID, 결과 상태만 가려 표시합니다.</p>
+        <div id="audit-records-list" style="font-family: monospace; font-size: 12px; color: #cbd5e1; max-height: 120px; overflow-y: auto;"></div>
       </div>
     </section>
 
@@ -363,6 +438,7 @@
           const list = document.querySelector('#notes');
           if (list) list.replaceChildren();
         }
+        loadAuditSummary(session.access_token);
       } else {
         currentToken = null;
         authView.style.display = 'none';
@@ -380,6 +456,7 @@
         if (unapprovedNotice) unapprovedNotice.style.display = 'block';
         if (approvedVaultArea) approvedVaultArea.style.display = 'none';
         loadNotes(null);
+        loadAuditSummary(null);
       }
     }
 
@@ -521,6 +598,105 @@
     });
 
     updateAuthState(null);
+
+    // 12단계: 탈환 작전실 점검 표 및 서버 감사 기록 로드
+    async function loadOperationsSummary() {
+      const tbody = document.querySelector('#ops-table-body');
+      const countsSpan = document.querySelector('#ops-summary-counts');
+      try {
+        const res = await fetch('/api/operations', { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const ops = Array.isArray(data?.operations) ? data.operations : [];
+
+        const measuredCount = ops.filter(o => o.status === 'measured').length;
+        const notRunCount = ops.filter(o => o.status === 'not_run').length;
+
+        if (countsSpan) {
+          countsSpan.textContent = `확인됨 ${measuredCount}건 · 미실행 ${notRunCount}건 (총 ${ops.length}항목)`;
+        }
+
+        if (tbody) {
+          tbody.replaceChildren(...ops.map(item => {
+            const tr = document.createElement('tr');
+            const tdStage = document.createElement('td');
+            tdStage.textContent = `${item.stage}단계`;
+
+            const tdId = document.createElement('td');
+            tdId.style.fontFamily = 'monospace';
+            tdId.style.color = '#38bdf8';
+            tdId.textContent = item.id;
+
+            const tdDesc = document.createElement('td');
+            tdDesc.textContent = item.description || '';
+
+            const tdStatus = document.createElement('td');
+            const badge = document.createElement('span');
+            if (item.status === 'measured') {
+              badge.className = 'badge-measured';
+              badge.textContent = '확인됨 (measured)';
+            } else {
+              badge.className = 'badge-notrun';
+              badge.textContent = '미실행 (not_run)';
+            }
+            tdStatus.appendChild(badge);
+
+            tr.append(tdStage, tdId, tdDesc, tdStatus);
+            return tr;
+          }));
+        }
+      } catch (err) {
+        if (tbody) {
+          tbody.innerHTML = `<tr><td colspan="4" style="color: #f87171;">점검 표 조회 실패: ${err.message}</td></tr>`;
+        }
+      }
+    }
+
+    async function loadAuditSummary(token) {
+      const box = document.querySelector('#audit-summary-box');
+      const badge = document.querySelector('#audit-count-badge');
+      const list = document.querySelector('#audit-records-list');
+      if (!token) {
+        if (box) box.style.display = 'none';
+        return;
+      }
+      try {
+        const res = await fetch('/api/notes/audit', {
+          cache: 'no-store',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'X-Requested-With': 'com.aleph.vault'
+          }
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const history = Array.isArray(data?.auditHistory) ? data.auditHistory : [];
+
+        if (box) box.style.display = 'block';
+        if (badge) badge.textContent = `${history.length}건 기록 대조됨`;
+
+        if (list) {
+          if (history.length === 0) {
+            list.textContent = '기록된 감사 사건이 없습니다.';
+          } else {
+            // 본문은 절대 포함하지 않고 타임스탬프와 가린 ID/액션/상태만 렌더링
+            list.replaceChildren(...history.slice(-8).reverse().map(entry => {
+              const row = document.createElement('div');
+              row.style.padding = '4px 0';
+              row.style.borderBottom = '1px solid #1a2c42';
+              const time = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : '';
+              row.textContent = `[${time}] action: ${entry.action} | resId: ${entry.resourceId || 'notes'} | success: ${entry.success}`;
+              return row;
+            }));
+          }
+        }
+      } catch (err) {
+        if (box) box.style.display = 'block';
+        if (list) list.textContent = `감사 기록 조회 불가: ${err.message}`;
+      }
+    }
+
+    loadOperationsSummary();
 
     // 오프라인 상태 감지 및 안내
     function updateOnlineStatus() {
