@@ -72,41 +72,39 @@ export async function runAttackChecks(config) {
     }
   }
 
-  // 6단계: 미등록 기기 차단 점검 (심판 검증 항목으로 로컬은 미실행 기록)
+  // 6단계: 미등록 기기 차단 점검 (심판 검증 항목으로 로컬은 not_run)
   if (config.step >= 6) {
     checks.push({
       attackId: 'unregistered_device_access',
       expected: '미등록 기기 요청 차단 (device_not_registered)',
-      observed: '미실행 (심판 검증 항목)'
+      observed: 'not_run'
     });
   }
 
   // 7단계: 복합 이상 접속 추가 확인(재로그인) 점검
-  // 제공 엔진의 재로그인 시각 확인 계약이 준비 전이므로 가상 사건 규칙만 시험하고 실제 차단은 미실행으로 기록
   if (config.step >= 7) {
     checks.push({
       attackId: 'step_up_reauth_check',
       expected: '복합 이상 접속 시 추가 확인(재인증) 전 차단 및 새 요청 허용',
-      observed: '미실행 (제공 엔진 계약 준비 전 · 로컬 가상 사건 규칙 시험 완료)'
+      observed: 'not_run'
     });
   }
 
-  // 8단계: 다른 구역 및 타인 소유 자원 접근 차단 점검
+  // 8단계: 다른 구역 및 타인 소유 자원 접근 차단 점검 (번들 시 미전송 항목은 not_run)
   if (config.step >= 8) {
     checks.push({
       attackId: 'cross_zone_access_check',
       expected: '타인 소유 메모 및 다른 구역 접근 차단',
-      observed: '비인증 및 권한 외 직접 요청 시 정상적으로 거부됨'
+      observed: 'not_run'
     });
   }
 
   // 9단계: 도플갱어 탐지 및 권한 회수 제안 점검
-  // 운영 반 엔진의 사건 전달·접속 회수가 연결 전이므로 로컬 탐지 규칙만 시험하고 실제 접속 회수는 미실행으로 기록
   if (config.step >= 9) {
     checks.push({
       attackId: 'burst_read_detection_check',
       expected: '10분 내 120건 초과 다량 조회 탐지 및 회수 제안(propose_revocation)',
-      observed: '미실행 (운영 반 엔진 전달 연결 전 · 로컬 가상 사건 탐지 시험 통과)'
+      observed: 'not_run'
     });
   }
 
@@ -115,16 +113,16 @@ export async function runAttackChecks(config) {
     checks.push({
       attackId: 'single_note_restore_check',
       expected: '환경 변수 사본 기반 이중 해시 검증 및 비인가 본문 요청 차단',
-      observed: '미실행 (격리 심판 환경 주입 항목 · 로컬 안전 정책 복원 계획/적용 완료)'
+      observed: 'not_run'
     });
   }
 
-  // 11단계: 기기 승인 요청 및 서버 검증 기반 자료실 보호 점검
+  // 11단계: 기기 승인 요청 및 서버 검증 기반 자료실 보호 점검 (번들 시 미전송 항목은 not_run)
   if (config.step >= 11) {
     checks.push({
       attackId: 'device_approval_and_vault_lock_check',
       expected: '승인 전 보호 자료 노출 차단 및 서버 확인 기기만 자료실 해제',
-      observed: '승인 전 자료 잠금 확인 및 서버 기기 승인 엔드포인트 연동 완료'
+      observed: 'not_run'
     });
   }
 
@@ -133,7 +131,7 @@ export async function runAttackChecks(config) {
     checks.push({
       attackId: 'invasion_41_attacks_defense',
       expected: '41종 침투 공격 종합 방어 및 작전실 실측 연동',
-      observed: '미실행 (심판 총공세 평가 대기 중 · 실측 14건 대조 완료)'
+      observed: 'not_run'
     });
   }
 

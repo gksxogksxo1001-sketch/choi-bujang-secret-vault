@@ -19,7 +19,7 @@
     { "source": "/api/notes/restore/:id", "destination": "/api/notes?id=:id&action=restore" },
     { "source": "/api/notes/restore", "destination": "/api/notes?action=restore" },
     { "source": "/api/notes/audit", "destination": "/api/notes?action=audit" },
-    { "source": "/api/operations", "destination": "/api/notes?action=operations" },
+    { "source": "/api/operations", "destination": "/api/notes" },
     { "source": "/api/notes/:id", "destination": "/api/notes?id=:id" }
   ]
 }
