@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101a28">
+  <link rel="manifest" href="/manifest.json">
   <title>BYTE BACK | 점령된 자료실</title>
   <style>
     :root { color-scheme: dark; font-family: system-ui, sans-serif; }
@@ -12,6 +14,15 @@
     h1 { margin: 16px 0; font-size: clamp(30px, 7vw, 48px); line-height: 1.2; }
     p { font-size: 17px; line-height: 1.7; color: #bfd0e5; }
     .notice { margin: 26px 0; padding: 18px; border: 1px solid #d07384; border-radius: 14px; color: #ffe3e8; background: #612a3544; }
+    .offline-banner { margin: 16px 0; padding: 14px 18px; border: 1px solid #f59e0b; border-radius: 12px; background: #78350f44; color: #fef3c7; }
+    .offline-banner strong { display: block; font-size: 15px; margin-bottom: 4px; color: #fde68a; }
+    .offline-banner span { font-size: 14px; line-height: 1.5; }
+    .device-card { margin: 20px 0; padding: 18px; border: 1px solid #3b5068; border-radius: 14px; background: #131f30; }
+    .device-card-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+    .device-card-header strong { font-size: 16px; margin-bottom: 0; }
+    .device-badge { display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; background: #854d0e; color: #fef08a; }
+    .device-badge.verified { background: #065f46; color: #a7f3d0; }
+    .device-notice { font-size: 14px; line-height: 1.6; color: #94a3b8; margin: 0; }
     ul { list-style: none; display: grid; gap: 12px; padding: 0; }
     li { border: 1px solid #51667c; border-radius: 14px; padding: 17px 19px; background: #1a2a3d; }
     strong { display: block; font-size: 18px; margin-bottom: 5px; }
@@ -45,6 +56,21 @@
     <h1>점령된 자료실</h1>
     <p>지금은 보호 장치가 없는 상태입니다. 아래 기록은 모두 실습을 위해 만든 가상 자료입니다.</p>
     <div class="notice">로그인하지 않은 방문자도 자료를 볼 수 있습니다. 공개 범위를 확인하고, 다음 제작 단계에서 접근을 차례로 막아 주세요.</div>
+
+    <div id="offline-banner" class="offline-banner" role="status" style="display: none;">
+      <strong>오프라인 상태 안내</strong>
+      <span>네트워크 연결이 감지되지 않습니다. 보안 자료실은 안전한 통신 및 서버 검증이 필수적이므로 오프라인 캐시를 통한 우회는 허용되지 않습니다.</span>
+    </div>
+
+    <section class="device-card" id="device-approval-section">
+      <div class="device-card-header">
+        <strong>기기 승인 상태</strong>
+        <span id="device-status-badge" class="device-badge">판정기 확인 필요</span>
+      </div>
+      <p class="device-notice">
+        앱을 설치했다는 표시만으로 기기 확인이 완료된 것으로 간주하지 않습니다. 기기 신뢰 및 접근 승인 여부는 클라이언트가 아닌 서버와 ZTNA 판정기가 최종 결정하며, 기기 키나 토큰은 브라우저 저장소에 보관하지 않습니다.
+      </p>
+    </section>
 
     <section class="auth-card" id="auth-section">
       <div id="unauthenticated-view">
@@ -341,6 +367,17 @@
     } else {
       updateAuthState(null);
     }
+
+    // 오프라인 상태 감지 및 안내
+    function updateOnlineStatus() {
+      const banner = document.querySelector('#offline-banner');
+      if (banner) {
+        banner.style.display = navigator.onLine ? 'none' : 'block';
+      }
+    }
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    updateOnlineStatus();
   </script>
 </body>
 </html>
