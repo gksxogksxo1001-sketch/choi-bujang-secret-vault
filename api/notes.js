@@ -5,9 +5,28 @@ import { createLoginVerifier } from '../src/verify-login.mjs';
 
 const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
 
-// 서버 내부 append-only 감사 기록 저장소 (DB 테이블 오염 방지)
-const auditLogs = [];
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+
+// 서버 내부 append-only 감사 기록 저장소 (/tmp 파일 연동으로 서버리스 인스턴스 간 영속화 보완)
+const auditFilePath = '/tmp/aleph-audit-logs.json';
+let auditLogs = [];
+
+function loadAuditLogs() {
+  try {
+    if (existsSync(auditFilePath)) {
+      const raw = readFileSync(auditFilePath, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        auditLogs = parsed;
+      }
+    }
+  } catch {
+    // 파일 읽기 실패 시 메모리 저장소 유지
+  }
+}
+
 function recordAudit({ userId, action, resourceId, details, success = true }) {
+  loadAuditLogs();
   const entry = {
     id: randomUUID(),
     timestamp: new Date().toISOString(),
@@ -18,6 +37,11 @@ function recordAudit({ userId, action, resourceId, details, success = true }) {
     success,
   };
   auditLogs.push(entry);
+  try {
+    writeFileSync(auditFilePath, JSON.stringify(auditLogs), 'utf8');
+  } catch {
+    // 파일 쓰기 실패 시 메모리 저장 유지
+  }
   return entry;
 }
 
@@ -113,6 +137,7 @@ export default async function handler(request, response) {
 
   // 감사 기록 조회 경로 (GET /api/notes/audit): 서버 내부 append-only 기록에서 본인 이력만 반환
   if ((url.pathname === '/api/notes/audit' || url.searchParams.get('action') === 'audit') && method === 'GET') {
+    loadAuditLogs();
     const userHistory = auditLogs.filter(log => log.userId === verified.userId);
     return response.status(200).json({
       schema: 'aleph.defense.audit.v1',
@@ -255,17 +280,18 @@ export default async function handler(request, response) {
       }
     }
 
-    // 7. 한 건만 복원 (DB 갱신 또는 삽입)
-    const noteTitle = backupNote.title || '복원된 메모';
+    // 7. 한 건만 복원 (DB 갱신 또는 삽입, 다른 메모나 지정 외 속성은 불필요하게 변경하지 않음)
     const { data: existing } = await supabase
       .from('notes')
-      .select('id, owner_id')
+      .select('id, owner_id, title')
       .eq('id', restoreTargetId)
       .maybeSingle();
 
-    if (existing && existing.owner_id !== verified.userId) {
+    if (existing && existing.owner_id && existing.owner_id !== verified.userId) {
       return response.status(403).json({ error: 'Forbidden: 타인 소유 메모를 덮어쓸 수 없습니다.' });
     }
+
+    const noteTitle = backupNote.title || existing?.title || '복원된 메모';
 
     if (existing) {
       await supabase
@@ -418,6 +444,13 @@ export default async function handler(request, response) {
     });
 
     if (error) return response.status(500).json({ error: error.message });
+    recordAudit({
+      userId: verified.userId,
+      action: 'create_note',
+      resourceId: id,
+      details: { title },
+      success: true,
+    });
     return response.status(201).json({ id, resourceId: 'notes' });
   }
 
@@ -466,6 +499,13 @@ export default async function handler(request, response) {
     if (error) return response.status(500).json({ error: error.message });
     if (!data) return response.status(404).json({ error: 'Note not found' });
 
+    recordAudit({
+      userId: verified.userId,
+      action: 'update_note',
+      resourceId: pathId,
+      details: { title: data.title },
+      success: true,
+    });
     return response.status(200).json({ id: data.id, title: data.title, body: data.content, resourceId: 'notes' });
   }
 
@@ -493,6 +533,13 @@ export default async function handler(request, response) {
       .eq('owner_id', verified.userId);
 
     if (error) return response.status(500).json({ error: error.message });
+    recordAudit({
+      userId: verified.userId,
+      action: 'delete_note',
+      resourceId: pathId,
+      details: {},
+      success: true,
+    });
     return response.status(200).json({ success: true, id: pathId, resourceId: 'notes' });
   }
 
