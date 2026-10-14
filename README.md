@@ -349,3 +349,84 @@ npm run test:package; npm run decider:test; npm run detect:test; npm run fixture
 - 모든 로컬 단위 시험과 가상 판정/탐지 시험이 오류 없이 정상 통과하는지 순차적으로 검증합니다.
 - *(주의: 로컬 가상 요청 시험의 성공은 실제 심판 판정이나 운영 반 엔진 통과 증거가 아니며, 미실행 항목은 실제 평가 환경에서 별도 검증됩니다.)*
 
+---
+
+## 12단계 운영 안내: 학생 판정기·탐지 규칙·접속 앱·자료실 설치·실행·중지·복구 절차
+
+기준 커밋: `bbab59a` (12단계 제작 2: 1~11단계 정상·금지 요청 종합 실측 검증 절차 및 작전실 표 연동)
+
+### 1. 학생 몫과 제공 엔진의 출처 구분
+
+본 방어전 시스템은 **학생이 직접 작성한 방어 구성요소**와 **운영 측이 제공하는 ALEPH SDP 엔진**이 명확히 분리되어 작동합니다.
+
+| 구분 | 구성 요소 | 담당 주체 및 출처 | 역할 및 세부 파일 |
+|---|---|---|---|
+| **학생 몫** | **학생 판정기** | 학생 작성 (`src/decider.mjs`) | 기기 등록(`device_registered`), 추가 본인확인(`step_up_required`), 구역 분리(`zone_segregation`) 규칙 판정 |
+| **학생 몫** | **탐지 규칙** | 학생 작성 (`src/detect.mjs`) | 10분 구간 내 동일 주체 120건 초과 조회 시 폭주 탐지(`burst_read`) 및 세션 회수 제안(`propose_revocation`) |
+| **학생 몫** | **접속 앱** | 학생 작성 (`public/index.html`, `manifest.webmanifest`) | PWA 형태 단일 접속 앱, 무저장소(메모리 전용) 세션 관리, 기기 승인 UI, 작전실 실측 현황판 |
+| **학생 몫** | **자료실** | 학생 작성 (`api/notes.js`, `schema.sql`) | Vercel Serverless Function 단일 진입점, 자원 격리, 3요소 대조 단건 복원, 실측 API(`/api/operations`) |
+| **학생 몫** | **복구 도구** | 학생 작성 (`scripts/restore-safe-policy.mjs`) | 무결성 해시 검증 기반 안전 정책 복원 및 상태 검증 |
+| **제공 엔진** | **ALEPH SDP 엔진** | **ALEPH SDP 엔진 사용** (제공 엔진) | 접속 게이트웨이, 정책 집행점(PEP), 심판 평가 접수기(`judgeIssuer`), 실시간 보안 사건 수집 및 접근 제어 인프라 |
+
+#### 비밀값 관리 원칙 (비밀값 포장 금지)
+- 토큰, 비밀키, 데이터베이스 서비스 키(`SUPABASE_SECRET_KEY` 등)를 코드, 주석, Git 저장소, 설정 파일에 임의로 감추거나 하드코딩(포장)하지 않습니다.
+- 필요한 비밀값은 Vercel 프로젝트 대시보드의 **Environment Variables** 또는 공식 관리 화면의 비밀 입력란에 학생이 직접 입력하여 런타임 환경 변수로 주입합니다.
+
+---
+
+### 2. 설치·실행·중지·복구 재현 순서
+
+#### [1단계: 설치 (Installation)]
+1. **저장소 복제 및 의존성 설치**:
+   ```bash
+   git clone <본인_저장소_URL>
+   npm install
+   ```
+2. **환경 변수 구성 (공식 설정 화면 직접 입력)**:
+   - Vercel 대시보드(Settings > Environment Variables)에서 필수 환경 변수(`SUPABASE_URL`, `SUPABASE_SECRET_KEY` 등)를 직접 등록합니다. (코드 내 비밀값 포장 금지)
+
+#### [2단계: 실행 (Execution)]
+1. **학생 판정기 및 탐지 규칙 가상 시험 실행**:
+   ```bash
+   npm run decider:test
+   npm run detect:test
+   ```
+2. **1~11단계 정상·금지 요청 실측 검증 실행**:
+   ```bash
+   npm run measure
+   ```
+   - 1~11단계의 정상 요청 허용 및 금지 요청 차단 실측 데이터와 고유 `requestId`, 확인 시각이 표준 표 형식으로 콘솔에 출력됩니다.
+   - *(주의: 아직 심판 평가를 실행하지 않은 12단계 41종 시험은 `not_run`으로 유지됩니다.)*
+3. **접속 앱 및 자료실 실행**:
+   - 로컬 빌드 검증:
+     ```bash
+     npm run build -- --local
+     ```
+   - 배포 환경 실행: Vercel 배포 주소(`https://choi-bujang-secret-vault-sand.vercel.app`)로 접속하여 웹/PWA 접속 앱을 실행합니다.
+   - 접속 앱 화면에서 [기기 승인 요청] 버튼을 클릭하여 기기 승인 상태를 확인하고, [탈환 작전실]의 실측 표를 확인합니다.
+
+#### [3단계: 중지 (Stopping)]
+1. **로컬 실행 프로세스 중지**:
+   - 실행 중인 로컬 터미널에서 `Ctrl + C`를 눌러 프로세스를 종료합니다.
+2. **접속 앱 세션 중지**:
+   - 웹/PWA 화면의 **[로그아웃]** 버튼을 클릭합니다.
+   - 브라우저 메모리에 유지되던 인증 토큰이 즉시 소멸되며, `localStorage` 및 `sessionStorage`는 비워진 상태로 유지됩니다.
+3. **접근 권한 중지 (ALEPH SDP 엔진 연동)**:
+   - 미등록 기기 또는 도플갱어 비인가 다량 조회가 탐지되면, 판정기/탐지 모듈이 `deny` 또는 `propose_revocation`을 반환하여 ALEPH SDP 엔진에 의해 세션 접근이 차단·중지됩니다.
+
+#### [4단계: 복구 (Recovery)]
+1. **안전 정책 사본 복구**:
+   - 정책 파일(`src/decider.mjs`)에 이상이 발생하거나 침해 후 재설정이 필요할 때 실행합니다:
+     ```bash
+     npm run policy:restore
+     ```
+   - 백업 사본(`backups/step10/safe-policy.json`)의 SHA-256 해시와 무결성을 대조한 후 안전하게 복원합니다.
+2. **비공개 가상 메모 단건 복구**:
+   - 메모 단건의 ID, 소유자, 본문 해시 3요소를 검증하여 복원합니다:
+     ```bash
+     curl -X POST https://choi-bujang-secret-vault-sand.vercel.app/api/restore/notes/<메모ID> \
+       -H "Authorization: Bearer <사용자_토큰>" \
+       -H "Content-Type: application/json"
+     ```
+   - 3요소가 정확히 일치할 때만 `200 OK`로 복원되며 타인 메모나 변조된 요청은 `400` 또는 `403`으로 엄격히 거부됩니다.
+

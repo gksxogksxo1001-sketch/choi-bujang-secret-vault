@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (config.step < 1 || config.step > 11) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (config.step < 1 || config.step > 12) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -125,6 +125,15 @@ export async function runAttackChecks(config) {
       attackId: 'device_approval_and_vault_lock_check',
       expected: '승인 전 보호 자료 노출 차단 및 서버 확인 기기만 자료실 해제',
       observed: '승인 전 자료 잠금 확인 및 서버 기기 승인 엔드포인트 연동 완료'
+    });
+  }
+
+  // 12단계: 41종 총공세 방어 및 작전실 실측 점검
+  if (config.step >= 12) {
+    checks.push({
+      attackId: 'invasion_41_attacks_defense',
+      expected: '41종 침투 공격 종합 방어 및 작전실 실측 연동',
+      observed: '미실행 (심판 총공세 평가 대기 중 · 실측 14건 대조 완료)'
     });
   }
 
