@@ -683,7 +683,7 @@
             tdId.textContent = item.id;
 
             const tdDesc = document.createElement('td');
-            tdDesc.textContent = item.description || '';
+            tdDesc.textContent = item.name || item.description || '';
 
             const tdStatus = document.createElement('td');
             const badge = document.createElement('span');

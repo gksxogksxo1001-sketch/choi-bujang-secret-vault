@@ -2,6 +2,7 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 import { createLoginVerifier } from '../src/verify-login.mjs';
+import { getOperationsData } from '../src/operations-api.mjs';
 
 const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
 
@@ -270,21 +271,7 @@ export default async function handler(request, response) {
       });
     }
 
-    return response.status(200).json({
-      schema: 'aleph.defense.operations.v1',
-      operations: [
-        { id: 'anonymous_read', stage: 2, status: 'measured', description: '비로그인 가상 메모 접근 차단' },
-        { id: 'token_verification', stage: 3, status: 'measured', description: 'JWT 토큰 검증 및 비인가 차단' },
-        { id: 'owner_isolation', stage: 4, status: 'measured', description: '소유자 대조 및 RLS 권한 분리' },
-        { id: 'direct_storage_revoke', stage: 5, status: 'measured', description: '원본 API 직접 권한 회수' },
-        { id: 'device_registration', stage: 6, status: 'not_run', description: '운영 반 엔진 미등록 기기 차단 연동' },
-        { id: 'step_up_reauth', stage: 7, status: 'not_run', description: '운영 반 엔진 복합 이상 접속 재인증 연동' },
-        { id: 'zone_segregation', stage: 8, status: 'measured', description: '자원 구역 분리 및 공지 쓰기 차단' },
-        { id: 'burst_read_revocation', stage: 9, status: 'not_run', description: '운영 반 엔진 도플갱어 세션 강제 회수 연동' },
-        { id: 'single_note_restore', stage: 10, status: 'measured', description: '환경 변수 사본 이중 해시 검증 기반 단건 복원' },
-        { id: 'device_approval', stage: 11, status: 'measured', description: '설치형 앱 서명 검증 및 기기 승인' }
-      ]
-    });
+    return response.status(200).json(getOperationsData());
   }
 
   // 화면 코드에서 Supabase 공개 키를 제거하기 위한 서버 로그인 처리 액션
