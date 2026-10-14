@@ -17,9 +17,12 @@
     .offline-banner { margin: 16px 0; padding: 14px 18px; border: 1px solid #f59e0b; border-radius: 12px; background: #78350f44; color: #fef3c7; }
     .offline-banner strong { display: block; font-size: 15px; margin-bottom: 4px; color: #fde68a; }
     .offline-banner span { font-size: 14px; line-height: 1.5; }
-    .device-card { margin: 20px 0; padding: 18px; border: 1px solid #3b5068; border-radius: 14px; background: #131f30; }
-    .device-card-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
-    .device-card-header strong { font-size: 16px; margin-bottom: 0; }
+    .device-card { margin: 20px 0; border: 1px solid #3b5068; border-radius: 14px; background: #131f30; overflow: hidden; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); }
+    .device-card-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 18px; cursor: pointer; user-select: none; background: #162438; transition: background 0.2s; }
+    .device-card-header:hover { background: #1c2e47; }
+    .device-card-header:focus-visible { outline: 2px solid #8ad8df; }
+    .device-card-header strong { font-size: 16px; margin-bottom: 0; display: flex; align-items: center; gap: 8px; }
+    .device-card-body { padding: 18px; border-top: 1px solid #233549; }
     .device-badge { display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; background: #854d0e; color: #fef08a; }
     .device-badge.verified { background: #065f46; color: #a7f3d0; }
     .device-badge.unverified { background: #991b1b; color: #fecaca; }
@@ -49,8 +52,15 @@
     .btn-edit:hover { background: #0369a1; }
     .add-note-card { padding: 18px; border: 1px dashed #4a627d; border-radius: 12px; background: #131e2d; }
     .add-note-card h3 { margin: 0 0 12px; font-size: 16px; color: #ecf4ff; }
-    .ops-room-card { margin: 24px 0; padding: 22px; border: 1px solid #38bdf8; border-radius: 14px; background: #0c192c; }
-    .ops-room-card h2 { margin: 0 0 14px; font-size: 20px; color: #38bdf8; display: flex; align-items: center; justify-content: space-between; }
+    .ops-room-card { margin: 24px 0; border: 1px solid #38bdf8; border-radius: 14px; background: #0c192c; overflow: hidden; box-shadow: 0 4px 16px rgba(12, 25, 44, 0.4); }
+    .ops-room-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 20px; cursor: pointer; user-select: none; background: #0e223a; transition: background 0.2s; }
+    .ops-room-header:hover { background: #142f50; }
+    .ops-room-header:focus-visible { outline: 2px solid #38bdf8; }
+    .ops-room-header h2 { margin: 0; font-size: 18px; color: #38bdf8; display: flex; align-items: center; gap: 10px; }
+    .ops-room-body { padding: 20px; border-top: 1px solid #1e3a5f; }
+    .toggle-indicator { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #8ad8df; font-weight: 600; }
+    .toggle-arrow { display: inline-block; transition: transform 0.25s ease; font-size: 12px; }
+    .toggle-arrow.open { transform: rotate(180deg); }
     .ops-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
     .ops-stat { padding: 14px; border-radius: 10px; background: #13233a; border: 1px solid #1e3a5f; }
     .ops-stat strong { font-size: 13px; color: #94a3b8; display: block; margin-bottom: 6px; }
@@ -75,108 +85,125 @@
       <span>네트워크 연결이 감지되지 않습니다. 보안 자료실은 안전한 통신 및 서버 검증이 필수적이므로 오프라인 캐시를 통한 우회는 허용되지 않습니다.</span>
     </div>
 
+    <!-- 기기 승인 상태 (드롭다운 아코디언) -->
     <section class="device-card" id="device-approval-section">
-      <div class="device-card-header">
-        <strong>기기 승인 상태</strong>
-        <span id="device-status-badge" class="device-badge">판정기 확인 필요</span>
+      <div class="device-card-header" id="device-card-toggle" role="button" tabindex="0" aria-expanded="false" aria-controls="device-card-body" title="클릭하여 기기 승인 상태 펼치기/접기">
+        <strong style="margin-bottom: 0;">
+          <span>📱 기기 승인 상태</span>
+          <span id="device-status-badge" class="device-badge">판정기 확인 필요</span>
+        </strong>
+        <span class="toggle-indicator">
+          <span id="device-toggle-label">펼치기</span>
+          <span class="toggle-arrow" id="device-toggle-arrow">▼</span>
+        </span>
       </div>
-      <p class="device-notice">
-        앱을 설치했다는 표시만으로 기기 확인이 완료된 것으로 간주하지 않습니다. 기기 신뢰 및 접근 승인 여부는 클라이언트가 아닌 서버와 ZTNA 판정기가 최종 결정하며, 기기 인증 정보나 자격 증명은 브라우저 저장소에 보관하지 않습니다.
-      </p>
-      <div id="device-action-box" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid #233549; display: none;">
-        <button type="button" class="btn btn-primary" id="request-approval-btn">기기 승인 요청</button>
-        <div id="device-approval-result" style="margin-top: 10px; font-size: 14px; font-weight: 600; display: none;"></div>
+      <div class="device-card-body" id="device-card-body" style="display: none;">
+        <p class="device-notice">
+          앱을 설치했다는 표시만으로 기기 확인이 완료된 것으로 간주하지 않습니다. 기기 신뢰 및 접근 승인 여부는 클라이언트가 아닌 서버와 ZTNA 판정기가 최종 결정하며, 기기 인증 정보나 자격 증명은 브라우저 저장소에 보관하지 않습니다.
+        </p>
+        <div id="device-action-box" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid #233549; display: none;">
+          <button type="button" class="btn btn-primary" id="request-approval-btn">기기 승인 요청</button>
+          <div id="device-approval-result" style="margin-top: 10px; font-size: 14px; font-weight: 600; display: none;"></div>
+        </div>
       </div>
     </section>
 
-    <!-- 12단계: 탈환 작전실 현황 요약 섹션 -->
+    <!-- 12단계: 탈환 작전실 현황 요약 섹션 (드롭다운 아코디언) -->
     <section class="ops-room-card" id="ops-room-section">
-      <h2>
-        <span>탈환 작전실 현황</span>
-        <span id="ops-overall-badge" class="badge-measured">작전실 활성</span>
-      </h2>
-      <p style="color: #94a3b8; font-size: 14px; margin-top: 0;">
-        판정기 규칙, 탐지 사건, 회수 상태, 복구 버전의 실제 서버 점검 상태를 요약합니다. (가상 메모 본문은 배제하고 가린 기록과 상태만 대조합니다.)
-      </p>
-
-      <div class="ops-grid">
-        <div class="ops-stat">
-          <strong>판정기 규칙</strong>
-          <div class="val" id="stat-decider-rules">3개 활성</div>
-          <span style="font-size: 12px; color: #38bdf8;">device, step_up, zone</span>
-        </div>
-        <div class="ops-stat">
-          <strong>탐지 사건</strong>
-          <div class="val" id="stat-detect-events">burst_read</div>
-          <span style="font-size: 12px; color: #f59e0b;">10분 120건 초과 탐지</span>
-        </div>
-        <div class="ops-stat">
-          <strong>회수 상태</strong>
-          <div class="val" id="stat-revocation-status"><span class="badge-notrun">미실행 (not_run)</span></div>
-          <span style="font-size: 12px; color: #94a3b8;">운영 반 엔진 연결 전</span>
-        </div>
-        <div class="ops-stat">
-          <strong>복구 버전</strong>
-          <div class="val" id="stat-restore-version">v1.0.0-safe-policy</div>
-          <span style="font-size: 12px; color: #34d399;">단건 사본 대조 검증</span>
-        </div>
+      <div class="ops-room-header" id="ops-room-toggle" role="button" tabindex="0" aria-expanded="false" aria-controls="ops-room-body" title="클릭하여 탈환 작전실 현황 펼치기/접기">
+        <h2>
+          <span>🛡️ 탈환 작전실 현황</span>
+          <span id="ops-overall-badge" class="badge-measured">작전실 활성</span>
+        </h2>
+        <span class="toggle-indicator">
+          <span id="ops-toggle-label">펼치기</span>
+          <span class="toggle-arrow" id="ops-toggle-arrow">▼</span>
+        </span>
       </div>
+      <div class="ops-room-body" id="ops-room-body" style="display: none;">
+        <p style="color: #94a3b8; font-size: 14px; margin-top: 0;">
+          판정기 규칙, 탐지 사건, 회수 상태, 복구 버전의 실제 서버 점검 상태를 요약합니다. (가상 메모 본문은 배제하고 가린 기록과 상태만 대조합니다.)
+        </p>
 
-      <div style="margin-top: 16px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-          <strong style="color: #ecf4ff; font-size: 15px;">실제 API 점검 표 (/api/operations)</strong>
-          <span id="ops-summary-counts" style="font-size: 13px; color: #8ad8df;">확인 중...</span>
-        </div>
-        <table class="ops-table">
-          <thead>
-            <tr>
-              <th>단계</th>
-              <th>항목 ID</th>
-              <th>설명</th>
-              <th>상태</th>
-            </tr>
-          </thead>
-          <tbody id="ops-table-body">
-            <tr><td colspan="4" style="text-align: center; color: #94a3b8;">점검 표를 불러오는 중입니다...</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- 1~11단계 정상·금지 요청 종합 실측 검증 표 -->
-      <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #1e3a5f;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
-          <div>
-            <strong style="color: #ecf4ff; font-size: 15px;">1~11단계 정상·금지 요청 종합 실측 검증 표</strong>
-            <span style="display: block; font-size: 12px; color: #94a3b8; margin-top: 2px;">(41종 총공세 시험은 임의 통과 없이 미실행으로 유지)</span>
+        <div class="ops-grid">
+          <div class="ops-stat">
+            <strong>판정기 규칙</strong>
+            <div class="val" id="stat-decider-rules">3개 활성</div>
+            <span style="font-size: 12px; color: #38bdf8;">device, step_up, zone</span>
           </div>
-          <span id="measurements-summary-badge" class="badge-measured">실측 집계 중...</span>
+          <div class="ops-stat">
+            <strong>탐지 사건</strong>
+            <div class="val" id="stat-detect-events">burst_read</div>
+            <span style="font-size: 12px; color: #f59e0b;">10분 120건 초과 탐지</span>
+          </div>
+          <div class="ops-stat">
+            <strong>회수 상태</strong>
+            <div class="val" id="stat-revocation-status"><span class="badge-notrun">미실행 (not_run)</span></div>
+            <span style="font-size: 12px; color: #94a3b8;">운영 반 엔진 연결 전</span>
+          </div>
+          <div class="ops-stat">
+            <strong>복구 버전</strong>
+            <div class="val" id="stat-restore-version">v1.0.0-safe-policy</div>
+            <span style="font-size: 12px; color: #34d399;">단건 사본 대조 검증</span>
+          </div>
         </div>
-        <div style="overflow-x: auto;">
-          <table class="ops-table" id="measurements-table">
+
+        <div style="margin-top: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <strong style="color: #ecf4ff; font-size: 15px;">실제 API 점검 표 (/api/operations)</strong>
+            <span id="ops-summary-counts" style="font-size: 13px; color: #8ad8df;">확인 중...</span>
+          </div>
+          <table class="ops-table">
             <thead>
               <tr>
-                <th style="width: 50px;">단계</th>
-                <th style="width: 75px;">구분</th>
-                <th>대상 및 기대 결과</th>
-                <th>실제 API 결과</th>
-                <th>요청 ID</th>
-                <th>확인 시각</th>
+                <th>단계</th>
+                <th>항목 ID</th>
+                <th>설명</th>
+                <th>상태</th>
               </tr>
             </thead>
-            <tbody id="measurements-table-body">
-              <tr><td colspan="6" style="text-align: center; color: #94a3b8;">실측 결과를 불러오는 중입니다...</td></tr>
+            <tbody id="ops-table-body">
+              <tr><td colspan="4" style="text-align: center; color: #94a3b8;">점검 표를 불러오는 중입니다...</td></tr>
             </tbody>
           </table>
         </div>
-      </div>
 
-      <div class="audit-summary-box" id="audit-summary-box" style="display: none;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-          <strong style="color: #f1f5f9;">가린 서버 감사 기록 (/api/notes/audit)</strong>
-          <span id="audit-count-badge" style="font-size: 12px; color: #8ad8df;">0건 기록됨</span>
+        <!-- 1~11단계 정상·금지 요청 종합 실측 검증 표 -->
+        <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #1e3a5f;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+            <div>
+              <strong style="color: #ecf4ff; font-size: 15px;">1~11단계 정상·금지 요청 종합 실측 검증 표</strong>
+              <span style="display: block; font-size: 12px; color: #94a3b8; margin-top: 2px;">(41종 총공세 시험은 임의 통과 없이 미실행으로 유지)</span>
+            </div>
+            <span id="measurements-summary-badge" class="badge-measured">실측 집계 중...</span>
+          </div>
+          <div style="overflow-x: auto;">
+            <table class="ops-table" id="measurements-table">
+              <thead>
+                <tr>
+                  <th style="width: 50px;">단계</th>
+                  <th style="width: 75px;">구분</th>
+                  <th>대상 및 기대 결과</th>
+                  <th>실제 API 결과</th>
+                  <th>요청 ID</th>
+                  <th>확인 시각</th>
+                </tr>
+              </thead>
+              <tbody id="measurements-table-body">
+                <tr><td colspan="6" style="text-align: center; color: #94a3b8;">실측 결과를 불러오는 중입니다...</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
-        <p style="margin: 0 0 8px; font-size: 12px; color: #94a3b8;">본문 없이 작업 종류, 자원 ID, 결과 상태만 가려 표시합니다.</p>
-        <div id="audit-records-list" style="font-family: monospace; font-size: 12px; color: #cbd5e1; max-height: 120px; overflow-y: auto;"></div>
+
+        <div class="audit-summary-box" id="audit-summary-box" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <strong style="color: #f1f5f9;">가린 서버 감사 기록 (/api/notes/audit)</strong>
+            <span id="audit-count-badge" style="font-size: 12px; color: #8ad8df;">0건 기록됨</span>
+          </div>
+          <p style="margin: 0 0 8px; font-size: 12px; color: #94a3b8;">본문 없이 작업 종류, 자원 ID, 결과 상태만 가려 표시합니다.</p>
+          <div id="audit-records-list" style="font-family: monospace; font-size: 12px; color: #cbd5e1; max-height: 120px; overflow-y: auto;"></div>
+        </div>
       </div>
     </section>
 
@@ -797,6 +824,34 @@
     }
 
     loadMeasurementsTable();
+
+    // 기기 승인 상태 및 탈환 작전실 현황 드롭다운 토글 제어
+    function setupDropdown(toggleId, bodyId, arrowId, labelId) {
+      const toggleEl = document.querySelector(toggleId);
+      const bodyEl = document.querySelector(bodyId);
+      const arrowEl = document.querySelector(arrowId);
+      const labelEl = document.querySelector(labelId);
+      if (!toggleEl || !bodyEl) return;
+
+      function toggle() {
+        const isHidden = bodyEl.style.display === 'none';
+        bodyEl.style.display = isHidden ? 'block' : 'none';
+        toggleEl.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+        if (arrowEl) arrowEl.classList.toggle('open', isHidden);
+        if (labelEl) labelEl.textContent = isHidden ? '접기' : '펼치기';
+      }
+
+      toggleEl.addEventListener('click', toggle);
+      toggleEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          toggle();
+        }
+      });
+    }
+
+    setupDropdown('#device-card-toggle', '#device-card-body', '#device-toggle-arrow', '#device-toggle-label');
+    setupDropdown('#ops-room-toggle', '#ops-room-body', '#ops-toggle-arrow', '#ops-toggle-label');
 
     // 오프라인 상태 감지 및 안내
     function updateOnlineStatus() {
