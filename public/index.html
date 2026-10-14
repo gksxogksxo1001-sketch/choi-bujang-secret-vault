@@ -129,6 +129,17 @@
     </section>
   </main>
   <script type="module">
+    // 브라우저 로컬 저장소 및 과거 세션에 남아 있을 수 있는 기기 키 잔여물 전면 소각(Sanitize)
+    try {
+      localStorage.clear();
+      sessionStorage.removeItem('device_key');
+      sessionStorage.removeItem('deviceKey');
+      sessionStorage.removeItem('deviceId');
+      sessionStorage.removeItem('device');
+      sessionStorage.removeItem('client_key');
+      sessionStorage.removeItem('private_key');
+    } catch {}
+
     const unauthView = document.querySelector('#unauthenticated-view');
     const authView = document.querySelector('#authenticated-view');
     const loginForm = document.querySelector('#login-form');
@@ -497,6 +508,10 @@
     logoutBtn.addEventListener('click', () => {
       sessionStorage.removeItem('access_token');
       sessionStorage.removeItem('user_email');
+      try {
+        localStorage.clear();
+        sessionStorage.clear();
+      } catch {}
       updateAuthState(null);
     });
 
