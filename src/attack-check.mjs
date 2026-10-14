@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (config.step < 1 || config.step > 9) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
+  if (config.step < 1 || config.step > 10) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
     app = new URL(config.publicAppUrl);
@@ -107,6 +107,15 @@ export async function runAttackChecks(config) {
       attackId: 'burst_read_detection_check',
       expected: '10분 내 120건 초과 다량 조회 탐지 및 회수 제안(propose_revocation)',
       observed: '미실행 (운영 반 엔진 전달 연결 전 · 로컬 가상 사건 탐지 시험 통과)'
+    });
+  }
+
+  // 10단계: 환경 변수 사본 기반 단건 복원 및 이중 해시 대조 점검
+  if (config.step >= 10) {
+    checks.push({
+      attackId: 'single_note_restore_check',
+      expected: '환경 변수 사본 기반 이중 해시 검증 및 비인가 본문 요청 차단',
+      observed: '미실행 (격리 심판 환경 주입 항목 · 로컬 안전 정책 복원 계획/적용 완료)'
     });
   }
 

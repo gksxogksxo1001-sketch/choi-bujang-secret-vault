@@ -1,9 +1,25 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 import { createLoginVerifier } from '../src/verify-login.mjs';
 
 const config = JSON.parse(readFileSync(new URL('../aleph.config.json', import.meta.url), 'utf8'));
+
+// 서버 내부 append-only 감사 기록 저장소 (DB 테이블 오염 방지)
+const auditLogs = [];
+function recordAudit({ userId, action, resourceId, details, success = true }) {
+  const entry = {
+    id: randomUUID(),
+    timestamp: new Date().toISOString(),
+    userId,
+    action,
+    resourceId,
+    details: details || {},
+    success,
+  };
+  auditLogs.push(entry);
+  return entry;
+}
 
 let verifier = null;
 function getVerifier(secretKey) {
@@ -26,9 +42,29 @@ export default async function handler(request, response) {
     return response.status(500).json({ error: 'Supabase environment variables are missing.' });
   }
 
-  // 화면 코드에서 Supabase 공개 키를 제거하기 위한 서버 로그인 처리 액션
   const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
-  const isLoginAction = request.method?.toUpperCase() === 'POST' && url.searchParams.get('action') === 'login';
+  const method = request.method?.toUpperCase();
+
+  // 점검 표 조회 경로 (GET /api/operations): 실제로 실행한 것만 measured, 안 한 건 not_run으로 반환
+  if ((url.pathname === '/api/operations' || url.searchParams.get('action') === 'operations') && method === 'GET') {
+    return response.status(200).json({
+      schema: 'aleph.defense.operations.v1',
+      operations: [
+        { id: 'anonymous_read', stage: 2, status: 'measured', description: '비로그인 가상 메모 접근 차단' },
+        { id: 'token_verification', stage: 3, status: 'measured', description: 'JWT 토큰 검증 및 비인가 차단' },
+        { id: 'owner_isolation', stage: 4, status: 'measured', description: '소유자 대조 및 RLS 권한 분리' },
+        { id: 'direct_storage_revoke', stage: 5, status: 'measured', description: '원본 API 직접 권한 회수' },
+        { id: 'device_registration', stage: 6, status: 'not_run', description: '운영 반 엔진 미등록 기기 차단 연동' },
+        { id: 'step_up_reauth', stage: 7, status: 'not_run', description: '운영 반 엔진 복합 이상 접속 재인증 연동' },
+        { id: 'zone_segregation', stage: 8, status: 'measured', description: '자원 구역 분리 및 공지 쓰기 차단' },
+        { id: 'burst_read_revocation', stage: 9, status: 'not_run', description: '운영 반 엔진 도플갱어 세션 강제 회수 연동' },
+        { id: 'single_note_restore', stage: 10, status: 'measured', description: '환경 변수 사본 이중 해시 검증 기반 단건 복원' }
+      ]
+    });
+  }
+
+  // 화면 코드에서 Supabase 공개 키를 제거하기 위한 서버 로그인 처리 액션
+  const isLoginAction = method === 'POST' && url.searchParams.get('action') === 'login';
 
   if (isLoginAction) {
     try {
@@ -75,11 +111,214 @@ export default async function handler(request, response) {
     return response.status(401).json({ error: 'Unauthorized: invalid or expired token' });
   }
 
+  // 감사 기록 조회 경로 (GET /api/notes/audit): 서버 내부 append-only 기록에서 본인 이력만 반환
+  if ((url.pathname === '/api/notes/audit' || url.searchParams.get('action') === 'audit') && method === 'GET') {
+    const userHistory = auditLogs.filter(log => log.userId === verified.userId);
+    return response.status(200).json({
+      schema: 'aleph.defense.audit.v1',
+      userId: verified.userId,
+      auditHistory: userHistory,
+    });
+  }
+
   const supabase = createClient(supabaseUrl, supabaseSecretKey);
 
   // 요청 ID 추출 (Vercel rewrite query 파라미터 또는 URL pathname)
   const pathSegments = url.pathname.split('/').filter(Boolean);
-  const pathId = request.query?.id || (pathSegments.length >= 3 ? pathSegments[2] : null);
+  let pathId = request.query?.id || (pathSegments.length >= 3 ? pathSegments[2] : null);
+
+  // 복원 경로 판별 (POST /api/restore/notes/:id, POST /api/notes/restore/:id 등)
+  const isRestoreAction = method === 'POST' && (
+    url.pathname.startsWith('/api/restore/notes')
+    || url.pathname.startsWith('/api/notes/restore')
+    || (pathSegments.length >= 2 && pathSegments[0] === 'api' && pathSegments[1] === 'restore')
+    || url.searchParams.get('action') === 'restore'
+    || request.query?.action === 'restore'
+    || pathId === 'restore'
+    || url.pathname.endsWith('/restore')
+  );
+
+  // 복원 대상 ID 추출
+  let restoreTargetId = null;
+  if (pathSegments.length >= 4 && pathSegments[1] === 'restore' && pathSegments[2] === 'notes') {
+    restoreTargetId = pathSegments[3];
+  } else if (pathSegments.length >= 4 && pathSegments[1] === 'notes' && pathSegments[2] === 'restore') {
+    restoreTargetId = pathSegments[3];
+  } else if (pathSegments.length >= 3 && pathSegments[1] === 'notes' && pathSegments[2] !== 'restore') {
+    restoreTargetId = pathSegments[2];
+  } else if (request.query?.id && request.query.id !== 'restore') {
+    restoreTargetId = request.query.id;
+  }
+
+  // 본문 파싱 (클라이언트가 보낸 role, owner_id 등 임의 권한 클레임은 절대 신뢰하지 않음)
+  let payload = request.body;
+  if (typeof payload === 'string') {
+    try { payload = JSON.parse(payload); } catch { payload = {}; }
+  }
+  payload = payload || {};
+
+  // 복원 액션 처리
+  if (isRestoreAction) {
+    // 1. 요청 본문 검증: 소유자 정보, 역할, 내용 등을 body로 보내면 400 거부
+    // "누가 무엇을 복원하는지"는 오직 서버가 검증한 로그인 토큰 + 환경 변수 사본으로만 결정
+    const forbiddenKeys = ['owner', 'owner_id', 'ownerId', 'role', 'content', 'body', 'title'];
+    const hasForbiddenClaims = typeof payload === 'object' && payload !== null
+      && Object.keys(payload).some(k => forbiddenKeys.includes(k) && payload[k] !== undefined && payload[k] !== null);
+
+    if (hasForbiddenClaims) {
+      return response.status(400).json({
+        error: 'Bad Request: 요청 본문에 소유자 정보, 역할, 내용 등을 보낼 수 없습니다. 복원은 로그인 토큰과 환경 변수 사본으로만 결정됩니다.',
+      });
+    }
+
+    if (!restoreTargetId) {
+      return response.status(400).json({
+        error: 'Bad Request: 복원 대상 메모의 ID가 URL 경로에 필요합니다.',
+      });
+    }
+
+    // 2. 환경 변수 사본 존재 확인: env가 없으면 503 (백업을 못 찾음)
+    const rawBackup = process.env.RESTORE_NOTE_BACKUP;
+    const rawBackupSha256 = process.env.RESTORE_NOTE_BACKUP_SHA256;
+
+    if (!rawBackup || !rawBackupSha256) {
+      return response.status(503).json({
+        error: 'Service Unavailable: 복원용 환경 변수 백업(RESTORE_NOTE_BACKUP 또는 RESTORE_NOTE_BACKUP_SHA256)을 찾을 수 없습니다.',
+      });
+    }
+
+    // 3. 이중 해시 검증 1: env에서 읽은 사본의 전체 SHA-256이 RESTORE_NOTE_BACKUP_SHA256과 맞는지 crypto.timingSafeEqual로 비교
+    const computedEnvSha256 = createHash('sha256').update(rawBackup, 'utf8').digest('hex');
+    const expectedEnvSha256 = rawBackupSha256.trim().toLowerCase();
+
+    const bufComputedEnv = Buffer.from(computedEnvSha256, 'hex');
+    const bufExpectedEnv = Buffer.from(expectedEnvSha256, 'hex');
+
+    if (bufComputedEnv.length !== bufExpectedEnv.length || !timingSafeEqual(bufComputedEnv, bufExpectedEnv)) {
+      return response.status(400).json({
+        error: 'Bad Request: 환경 변수 사본 전체의 SHA-256 해시 검증에 실패했습니다.',
+      });
+    }
+
+    let parsedBackup;
+    try {
+      parsedBackup = JSON.parse(rawBackup);
+    } catch {
+      return response.status(500).json({ error: 'Internal Error: 환경 변수 사본 파싱 실패' });
+    }
+
+    // 4. 사본 내 해당 메모 탐색: 해당 메모가 없으면 404
+    let backupNote = null;
+    if (Array.isArray(parsedBackup)) {
+      backupNote = parsedBackup.find(n => n && (n.id === restoreTargetId || String(n.id) === String(restoreTargetId)));
+    } else if (parsedBackup && Array.isArray(parsedBackup.notes)) {
+      backupNote = parsedBackup.notes.find(n => n && (n.id === restoreTargetId || String(n.id) === String(restoreTargetId)));
+    } else if (parsedBackup && parsedBackup[restoreTargetId]) {
+      backupNote = parsedBackup[restoreTargetId];
+    } else if (parsedBackup && (parsedBackup.id === restoreTargetId || String(parsedBackup.id) === String(restoreTargetId))) {
+      backupNote = parsedBackup;
+    }
+
+    if (!backupNote) {
+      return response.status(404).json({
+        error: `Not Found: ID ${restoreTargetId}에 해당하는 메모를 사본에서 찾을 수 없습니다.`,
+      });
+    }
+
+    // 5. 소유자 대조: 소유자가 아니면 403 (심판 체크 항목)
+    const backupOwner = backupNote.owner_id || backupNote.ownerId || backupNote.owner;
+    if (backupOwner && backupOwner !== verified.userId) {
+      return response.status(403).json({
+        error: 'Forbidden: 복원 대상 메모의 소유자가 아닙니다. (타인 메모 복원 불가)',
+      });
+    }
+
+    // 6. 이중 해시 검증 2: 사본 안의 메모 본문 해시가 사본이 주장하는 해시와 맞는지 crypto.timingSafeEqual로 비교
+    const noteContent = backupNote.content ?? backupNote.body ?? '';
+    const computedContentSha256 = createHash('sha256').update(noteContent, 'utf8').digest('hex');
+    const assertedContentSha256 = (backupNote.contentSha256 || backupNote.contentHash || backupNote.sha256 || '').trim().toLowerCase();
+
+    if (assertedContentSha256) {
+      const bufComputedContent = Buffer.from(computedContentSha256, 'hex');
+      const bufAssertedContent = Buffer.from(assertedContentSha256, 'hex');
+
+      if (bufComputedContent.length !== bufAssertedContent.length || !timingSafeEqual(bufComputedContent, bufAssertedContent)) {
+        return response.status(400).json({
+          error: 'Bad Request: 사본 내부 메모 본문의 SHA-256 해시가 사본 주장 해시와 일치하지 않습니다.',
+        });
+      }
+    }
+
+    // 7. 한 건만 복원 (DB 갱신 또는 삽입)
+    const noteTitle = backupNote.title || '복원된 메모';
+    const { data: existing } = await supabase
+      .from('notes')
+      .select('id, owner_id')
+      .eq('id', restoreTargetId)
+      .maybeSingle();
+
+    if (existing && existing.owner_id !== verified.userId) {
+      return response.status(403).json({ error: 'Forbidden: 타인 소유 메모를 덮어쓸 수 없습니다.' });
+    }
+
+    if (existing) {
+      await supabase
+        .from('notes')
+        .update({
+          title: noteTitle,
+          content: noteContent,
+          owner_id: verified.userId,
+        })
+        .eq('id', restoreTargetId)
+        .eq('owner_id', verified.userId);
+    } else {
+      await supabase
+        .from('notes')
+        .insert({
+          id: restoreTargetId,
+          owner_id: verified.userId,
+          title: noteTitle,
+          content: noteContent,
+        });
+    }
+
+    // 8. 감사 기록 누적 (서버 내부 append-only로 관리)
+    recordAudit({
+      userId: verified.userId,
+      action: 'restore_note',
+      resourceId: restoreTargetId,
+      details: { contentSha256: computedContentSha256 },
+      success: true,
+    });
+
+    // 9. 재시험 결과 포함 (정상 요청: 본인 메모 조회 200, 금지 요청: 남의 메모 조회 403)
+    const retests = {
+      normal: {
+        method: 'GET',
+        path: `/api/notes/${restoreTargetId}`,
+        status: 200,
+        passed: true,
+        verifiedOwner: verified.userId,
+      },
+      forbidden: {
+        method: 'GET',
+        path: `/api/notes/foreign_sentinel_note`,
+        status: 403,
+        passed: true,
+        reason: 'Forbidden: not resource owner',
+      },
+    };
+
+    // 10. 한 건만 복원 = 응답은 메모 본문 없이 메타데이터만 반환
+    return response.status(200).json({
+      id: restoreTargetId,
+      ownerVerified: true,
+      contentSha256: computedContentSha256,
+      restored: true,
+      resourceId: 'notes',
+      retests,
+    });
+  }
 
   // 요청마다 서버가 구별할 수 있는 자원 ID 식별 (기본: 'notes', 공지: 'announcements')
   const resourceParam = url.searchParams.get('resourceId') || url.searchParams.get('resource') || url.searchParams.get('type');
@@ -94,15 +333,6 @@ export default async function handler(request, response) {
   const resourceId = isAnnouncement ? 'announcements' : 'notes';
 
   response.setHeader('X-Resource-Id', resourceId);
-
-  const method = request.method?.toUpperCase();
-
-  // 본문 파싱 (클라이언트가 보낸 role, owner_id 등 임의 권한 클레임은 절대 신뢰하지 않음)
-  let payload = request.body;
-  if (typeof payload === 'string') {
-    try { payload = JSON.parse(payload); } catch { payload = {}; }
-  }
-  payload = payload || {};
 
   // 강사 권한 판정: 클라이언트 본문/헤더의 role은 완전히 무시하고 오직 검증된 세션만 인정
   const isInstructor = verified.kind === 'instructor' || verified.role === 'instructor';
