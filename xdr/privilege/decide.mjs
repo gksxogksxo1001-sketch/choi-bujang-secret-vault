@@ -69,3 +69,4 @@ export function decide(alert) {
     reason: '정상 사용자 활동 및 허용 이벤트'
   };
 }
+
